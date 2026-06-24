@@ -1,12 +1,15 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::rollback::{rollback_key, Rollback};
-use crate::tuning::modifiers::{read_trimmed, resolve_choice};
+use crate::tuning::modifiers::read_trimmed;
 use crate::tuning::sysfs::{allowed_sysfs_path, write_raw as write_sysfs_raw};
+
+const CPUFREQ_BASE: &str = "/sys/devices/system/cpu/cpufreq";
 
 const ALLOWED_GOVERNORS: &[&str] = &[
     "performance",
@@ -34,39 +37,72 @@ pub fn is_allowed_epp(value: &str) -> bool {
 }
 
 pub fn apply_governor(rollback: &Rollback, raw: &str) -> Result<()> {
-    let Some(governor) = resolve_choice(raw, is_allowed_governor) else {
-        warn!("No supported governor found in '{raw}'");
+    let available = read_available_values(CPUFREQ_BASE, "scaling_available_governors")?;
+    let Some(governor) = resolve_choice_for_available(raw, &available, is_allowed_governor) else {
+        warn!("No supported governor found in '{raw}' for available [{available}]");
         return Ok(());
     };
     write_cpu_file(rollback, &governor, scaling_governor_path)
 }
 
 pub fn apply_epp(rollback: &Rollback, raw: &str) -> Result<()> {
-    let Some(epp) = resolve_choice(raw, is_allowed_epp) else {
-        warn!("No supported EPP value found in '{raw}'");
+    let available = read_available_values(CPUFREQ_BASE, "energy_performance_available_preferences")?;
+    if available.is_empty() {
+        debug!("CPU energy performance preference is not supported on this platform");
+        return Ok(());
+    }
+    let Some(epp) = resolve_choice_for_available(raw, &available, is_allowed_epp) else {
+        warn!("No supported EPP value found in '{raw}' for available [{available}]");
         return Ok(());
     };
     write_cpu_file(rollback, &epp, epp_path)
 }
 
-fn scaling_governor_path(entry: &fs::DirEntry) -> PathBuf {
-    let file_name = entry.file_name();
-    let name = file_name.to_string_lossy();
-    if name.starts_with("policy") {
-        entry.path().join("scaling_governor")
-    } else {
-        entry.path().join("cpufreq/scaling_governor")
+fn resolve_choice_for_available(
+    raw: &str,
+    available: &str,
+    is_valid: impl Fn(&str) -> bool,
+) -> Option<String> {
+    let available: HashSet<&str> = available.split_whitespace().collect();
+    for candidate in raw.split('|').map(str::trim).filter(|part| !part.is_empty()) {
+        if is_valid(candidate) && available.contains(candidate) {
+            return Some(candidate.to_string());
+        }
     }
+    None
+}
+
+fn read_available_values(base: &str, leaf: &str) -> Result<String> {
+    let base_path = Path::new(base);
+    let entries = match fs::read_dir(base_path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => return Err(error.into()),
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("policy") || !name[6..].chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+
+        let path = entry.path().join(leaf);
+        if !path.is_file() {
+            continue;
+        }
+
+        return read_trimmed(&path);
+    }
+
+    Ok(String::new())
+}
+
+fn scaling_governor_path(entry: &fs::DirEntry) -> PathBuf {
+    entry.path().join("scaling_governor")
 }
 
 fn epp_path(entry: &fs::DirEntry) -> PathBuf {
-    let file_name = entry.file_name();
-    let name = file_name.to_string_lossy();
-    if name.starts_with("policy") {
-        entry.path().join("energy_performance_preference")
-    } else {
-        entry.path().join("cpufreq/energy_performance_preference")
-    }
+    entry.path().join("energy_performance_preference")
 }
 
 fn write_cpu_file(
@@ -74,13 +110,7 @@ fn write_cpu_file(
     value: &str,
     path_for_entry: fn(&fs::DirEntry) -> PathBuf,
 ) -> Result<()> {
-    let mut updated = 0usize;
-    for base in [
-        "/sys/devices/system/cpu/cpufreq",
-        "/sys/devices/system/cpu",
-    ] {
-        updated += write_file_dir(rollback, base, value, path_for_entry)?;
-    }
+    let updated = write_file_dir(rollback, CPUFREQ_BASE, value, path_for_entry)?;
     if updated == 0 {
         warn!("No CPU tuning nodes were updated");
     } else {
@@ -104,12 +134,8 @@ fn write_file_dir(
 
     let mut updated = 0usize;
     for entry in entries.flatten() {
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy();
-        let is_policy = name.starts_with("policy")
-            && name[6..].chars().all(|c| c.is_ascii_digit());
-        let is_cpu = name.starts_with("cpu") && name[3..].chars().all(|c| c.is_ascii_digit());
-        if !is_policy && !is_cpu {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("policy") || !name[6..].chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
 
@@ -131,6 +157,10 @@ fn write_cpu_node(rollback: &Rollback, target: &Path, value: &str) -> Result<()>
     validate_cpu_payload(target, value)?;
     let path = allowed_sysfs_path(target)?;
     let original = read_trimmed(&path)?;
+    if original == value {
+        debug!("Keeping CPU setting {} at '{value}'", path.display());
+        return Ok(());
+    }
     rollback.record_original(&rollback_key("sysfs", &path.to_string_lossy()), &original)?;
     write_sysfs_raw(&path, value)
 }
@@ -150,4 +180,39 @@ fn validate_cpu_payload(path: &Path, payload: &str) -> Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_first_available_governor_from_pipe_list() {
+        let chosen = resolve_choice_for_available(
+            "schedutil|ondemand|powersave",
+            "performance powersave",
+            is_allowed_governor,
+        );
+        assert_eq!(chosen.as_deref(), Some("powersave"));
+    }
+
+    #[test]
+    fn skips_unavailable_epp_values() {
+        let chosen = resolve_choice_for_available(
+            "balance_performance|balance_power",
+            "default performance balance_performance balance_power power",
+            is_allowed_epp,
+        );
+        assert_eq!(chosen.as_deref(), Some("balance_performance"));
+    }
+
+    #[test]
+    fn legacy_resolve_choice_still_validates_allowlist() {
+        use crate::tuning::modifiers::resolve_choice;
+
+        assert_eq!(
+            resolve_choice("schedutil|ondemand", is_allowed_governor).as_deref(),
+            Some("schedutil")
+        );
+    }
 }

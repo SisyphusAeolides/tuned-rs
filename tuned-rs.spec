@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Version:        0.1.0
-Release:        7%{?dist}
+Release:        8%{?dist}
 Summary:        Rust drop-in replacement for TuneD and Power Profiles Daemon
 
 # Plain cargo release builds do not produce useful RPM debuginfo subpackages.
@@ -50,7 +50,7 @@ cargo build --release
 %systemd_postun_with_restart tuned-rs.service tuned-rs-ppd.service
 
 %files
-%dir %ghost %{_sysconfdir}/tuned/profiles
+%dir %{_sysconfdir}/tuned/profiles
 %config(noreplace) %{_sysconfdir}/tuned/tuned-main.conf
 %config(noreplace) %{_sysconfdir}/tuned/ppd.conf
 %{_prefix}/lib/tuned/profiles
@@ -70,6 +70,10 @@ cargo build --release
 %{_datadir}/polkit-1/actions/org.freedesktop.UPower.PowerProfiles.policy
 
 %changelog
+* Wed Jun 24 2026 Kenneth Glowner <klglownerjr@usmarinecorps.vet> - 0.1.0-8
+- Pick CPU governors and EPP values from hardware-available options.
+- Avoid duplicate cpufreq writes and skip unchanged CPU sysfs values.
+
 * Wed Jun 24 2026 Kenneth Glowner <klglownerjr@usmarinecorps.vet> - 0.1.0-7
 - Ship ppd.conf, tuned-main.conf, and default TuneD profiles required for a
   standalone install without the Python tuned package.

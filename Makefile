@@ -36,6 +36,7 @@ install-config:
 	install -d $(DESTDIR)$(ETCTUNEDDIR)/profiles
 	install -D -m 0644 packaging/tuned-main.conf $(DESTDIR)$(ETCTUNEDDIR)/tuned-main.conf
 	install -D -m 0644 packaging/ppd.conf $(DESTDIR)$(ETCTUNEDDIR)/ppd.conf
+	find $(DESTDIR)$(ETCTUNEDDIR)/profiles -type d -exec chmod 0755 {} + 2>/dev/null || true
 
 install-profiles:
 	install -d $(DESTDIR)$(PROFILEDIR)
