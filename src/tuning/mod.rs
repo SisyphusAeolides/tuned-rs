@@ -6,6 +6,8 @@ pub mod sysctl;
 pub mod network;
 pub mod gpu;
 pub mod storage;
+pub mod thermal;
+pub mod battery;
 pub mod sysfs;
 pub mod vm;
 
