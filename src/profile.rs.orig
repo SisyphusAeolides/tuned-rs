@@ -33,15 +33,6 @@ pub struct DiskSettings {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct NetworkSettings {
-    pub tcp_congestion_control: Option<String>,
-    pub tcp_window_scaling: Option<String>,
-    pub tcp_timestamps: Option<String>,
-    pub tcp_sack: Option<String>,
-    pub tcp_fastopen: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
 pub struct AcpiSettings {
     pub platform_profile: Option<String>,
 }
@@ -55,7 +46,6 @@ pub struct Profile {
     pub vm: VmSettings,
     pub disk: DiskSettings,
     pub acpi: AcpiSettings,
-    pub network: NetworkSettings,
     pub sysctl: HashMap<String, String>,
 }
 
@@ -202,14 +192,6 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         platform_profile: section_value(&ini, "acpi", "platform_profile"),
     };
 
-    let network = NetworkSettings {
-        tcp_congestion_control: section_value(&ini, "network", "tcp_congestion_control"),
-        tcp_window_scaling: section_value(&ini, "network", "tcp_window_scaling"),
-        tcp_timestamps: section_value(&ini, "network", "tcp_timestamps"),
-        tcp_sack: section_value(&ini, "network", "tcp_sack"),
-        tcp_fastopen: section_value(&ini, "network", "tcp_fastopen"),
-    };
-
     let mut sysctl = HashMap::new();
     if let Some(section) = ini.get_map_ref().get("sysctl") {
         for (key, value) in section {
@@ -227,7 +209,6 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         vm,
         disk,
         acpi,
-        network,
         sysctl,
     })
 }

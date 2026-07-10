@@ -3,12 +3,15 @@ pub mod cpu;
 pub mod disk;
 pub mod modifiers;
 pub mod sysctl;
+pub mod network;
+pub mod gpu;
+pub mod storage;
 pub mod sysfs;
 pub mod vm;
 
 use anyhow::Result;
 
-use crate::profile::{DiskSettings, Profile, VmSettings};
+use crate::profile::{DiskSettings, NetworkSettings, Profile, VmSettings};
 use crate::rollback::Rollback;
 
 pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
@@ -31,8 +34,14 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
     )?;
 
     if let Some(platform_profile) = &profile.acpi.platform_profile {
+
+    network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
         acpi::apply_platform_profile(rollback, platform_profile)?;
+
+    network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
     }
+
+    network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
 
     Ok(())
 }
@@ -71,4 +80,14 @@ fn push_option(options: &mut Vec<(String, String)>, key: &str, value: &Option<St
     if let Some(value) = value {
         options.push((key.to_string(), value.clone()));
     }
+}
+
+fn network_option_pairs(network: &NetworkSettings) -> Vec<(String, String)> {
+    let mut options = Vec::new();
+    push_option(&mut options, "tcp_congestion_control", &network.tcp_congestion_control);
+    push_option(&mut options, "tcp_window_scaling", &network.tcp_window_scaling);
+    push_option(&mut options, "tcp_timestamps", &network.tcp_timestamps);
+    push_option(&mut options, "tcp_sack", &network.tcp_sack);
+    push_option(&mut options, "tcp_fastopen", &network.tcp_fastopen);
+    options
 }
