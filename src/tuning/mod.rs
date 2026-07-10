@@ -8,6 +8,7 @@ pub mod gpu;
 pub mod storage;
 pub mod thermal;
 pub mod battery;
+pub mod hermes;
 pub mod sysfs;
 pub mod vm;
 
