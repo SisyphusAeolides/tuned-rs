@@ -10,9 +10,26 @@ makedepends=('cargo')
 source=()
 
 build() {
+  cd "$srcdir/.."
   cargo build --release --locked
 }
 
 package() {
-  install -Dm755 target/release/$pkgname "$pkgdir/usr/bin/$pkgname"
+  cd "$srcdir/.."
+  mkdir -p "$pkgdir/usr/bin" "$pkgdir/usr/lib"
+  for f in target/release/*; do
+    if [ -f "$f" ] && [ -x "$f" ]; then
+      if [[ "$f" == *.so ]]; then
+        install -Dm755 "$f" "$pkgdir/usr/lib/$(basename "$f")"
+      elif [[ "$f" != *.d && "$f" != *.rlib ]]; then
+        install -Dm755 "$f" "$pkgdir/usr/bin/$(basename "$f")"
+      fi
+    elif [ -f "$f" ]; then
+      if [[ "$f" == *.so ]]; then
+        install -Dm755 "$f" "$pkgdir/usr/lib/$(basename "$f")"
+      elif [[ "$f" == *.a ]]; then
+        install -Dm644 "$f" "$pkgdir/usr/lib/$(basename "$f")"
+      fi
+    fi
+  done
 }
