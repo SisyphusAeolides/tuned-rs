@@ -9,7 +9,7 @@ Summary:        Rust drop-in replacement for TuneD and Power Profiles Daemon
 %global _debugsource_packages 0
 
 License:        GPL-3.0-or-later
-URL:            https://github.com/SisyphusCode/tuned-rs
+URL:            https://github.com/SisyphusAeolides/tuned-rs
 Source0:        %{url}/archive/main.tar.gz
 
 BuildRequires:  cargo

@@ -212,4 +212,4 @@ Same license as original TuneD project.
 
 ## Author
 
-Kenny Glowner (@SisyphusCode)
+Kenny Glowner (@SisyphusAeolides)

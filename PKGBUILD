@@ -1,9 +1,9 @@
 pkgname=tuned-rs
 pkgver=1.0.0
 pkgrel=2
-pkgdesc="System tuning daemon for Sisyphus Arch"
+pkgdesc="System tuning daemon for Sisyphus Linux"
 arch=('x86_64')
-url="https://github.com/SisyphusCode/tuned-rs"
+url="https://github.com/SisyphusAeolides/tuned-rs"
 license=('GPL3')
 depends=('glibc')
 makedepends=('cargo')
