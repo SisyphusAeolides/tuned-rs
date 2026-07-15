@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Version:        0.1.0
-Release:        10%{?dist}
+Release:        11%{?dist}
 Summary:        Rust drop-in replacement for TuneD and Power Profiles Daemon
 
 # Plain cargo release builds do not produce useful RPM debuginfo subpackages.
@@ -31,11 +31,14 @@ Conflicts:      tuned
 Conflicts:      tuned-ppd
 Conflicts:      power-profiles-daemon
 
+Recommends:     forged
+
 %description
 tuned-rs is a memory-safe Rust implementation of the TuneD daemon and the
 Power Profiles D-Bus API (PPD). It exposes com.redhat.tuned for tuned-adm and
 net.hadess.PowerProfiles / org.freedesktop.UPower.PowerProfiles for desktop
-power mode controls.
+power mode controls. Hermes plugin should enable only when /dev/hermes exists.
+When forged is installed, %post may drop a forge unit into /etc/forge/units/.
 
 %prep
 %autosetup -n tuned-rs-main
@@ -45,9 +48,16 @@ cargo build --release
 
 %install
 %make_install BINDIR=%{_sbindir}
+install -d %{buildroot}%{_datadir}/tuned-rs/forge
+install -m 0644 forge/tuned-rs.forge.toml \
+  %{buildroot}%{_datadir}/tuned-rs/forge/tuned-rs.forge.toml
 
 %post
 %systemd_post tuned-rs.service tuned-rs-ppd.service
+if [ -d /etc/forge/units ] && [ -f %{_datadir}/tuned-rs/forge/tuned-rs.forge.toml ]; then
+  cp -n %{_datadir}/tuned-rs/forge/tuned-rs.forge.toml \
+    /etc/forge/units/61-tuned-rs.forge.toml 2>/dev/null || true
+fi
 
 %preun
 %systemd_preun tuned-rs.service tuned-rs-ppd.service
@@ -74,8 +84,14 @@ cargo build --release
 %{_datadir}/polkit-1/actions/com.redhat.tuned.policy
 %{_datadir}/polkit-1/actions/net.hadess.PowerProfiles.policy
 %{_datadir}/polkit-1/actions/org.freedesktop.UPower.PowerProfiles.policy
+%dir %{_datadir}/tuned-rs
+%dir %{_datadir}/tuned-rs/forge
+%{_datadir}/tuned-rs/forge/tuned-rs.forge.toml
 
 %changelog
+* Wed Jul 15 2026 Kenny Glowner <sisyphuscode@fedoraproject.org> - 0.1.0-11
+- Ship forge unit and %post install into /etc/forge/units/ when forged is present
+
 * Sun Jun 28 2026 Kenneth Glowner <klglownerjr@usmarinecorps.vet> - 0.1.0-10
 - Added Provides: ppd-service and Obsoletes for PPD/tuned-ppd to fix dependency resolution.
 
