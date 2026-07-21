@@ -1,5 +1,5 @@
 PREFIX ?= /usr
-BINDIR ?= $(PREFIX)/sbin
+BINDIR ?= $(PREFIX)/bin
 SYSTEMDUNITDIR ?= /usr/lib/systemd/system
 DBUSCONFDIR ?= /usr/share/dbus-1/system.d
 DBUSSERVICEDIR ?= /usr/share/dbus-1/system-services
@@ -27,8 +27,6 @@ install: build install-config install-profiles
 	install -D -m 0644 packaging/tuned-rs.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-rs.service
 	install -D -m 0644 packaging/com.redhat.tuned.conf $(DESTDIR)$(DBUSCONFDIR)/com.redhat.tuned.conf
 	install -D -m 0644 packaging/com.redhat.tuned.policy $(DESTDIR)$(POLKITDIR)/com.redhat.tuned.policy
-	install -D -m 0644 selinux/tuned-rs.fc $(DESTDIR)$(DOCDIR)/selinux/tuned-rs.fc
-	install -D -m 0644 selinux/tuned-rs.te $(DESTDIR)$(DOCDIR)/selinux/tuned-rs.te
 	install -D -m 0644 README.md $(DESTDIR)$(DOCDIR)/README.md
 	$(MAKE) install-ppd
 

@@ -9,7 +9,7 @@ Conflicts=tuned-ppd.service power-profiles-daemon.service
 Type=dbus
 BusName=org.freedesktop.UPower.PowerProfiles
 BusName=net.hadess.PowerProfiles
-ExecStart=/usr/sbin/tuned-rs-ppd
+ExecStart=/usr/bin/tuned-rs-ppd
 Restart=on-failure
 RestartSec=2
 

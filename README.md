@@ -9,7 +9,6 @@ High-performance Rust rewrite of the TuneD system tuning daemon with advanced fe
 - Loads existing profiles from `/usr/lib/tuned` and `/etc/tuned`
 - Rollback of original values on profile switch and shutdown (`rollback=auto`)
 - PolicyKit authorization matching TuneD (`com.redhat.tuned.<method>` with root fallback)
-- SELinux-friendly allowlisted sysfs/proc writes
 - Power Profile Daemon (PPD) integration via `tuned-rs-ppd`
 
 ### Plugin Coverage
@@ -68,21 +67,19 @@ cargo build --release
 Install conflicts with the Python `tuned` package because both services claim
 `com.redhat.tuned` on the system bus.
 
-### From COPR (Fedora, CentOS Stream, RHEL 10 / Rocky 10 / Alma 10)
+### Arch Linux package
 
 ```bash
-sudo dnf copr enable sisyphuscode/tuned-rs
-sudo dnf install tuned-rs
+git clone https://github.com/SisyphusAeolides/arch-pkgbuilds.git
+cd arch-pkgbuilds/tuned-rs
+makepkg -si
 ```
-
-On RHEL 10 and compatible rebuilds, enable EPEL 10 first if not already enabled.
 
 ### From source
 
 ```bash
-sudo systemctl stop tuned
+make
 sudo make install
-sudo restorecon -v /usr/sbin/tuned-rs
 sudo systemctl enable --now tuned-rs
 ```
 
@@ -179,15 +176,6 @@ sysfs_acpi_monitor=false
 ```
 
 Then restart `tuned-rs-ppd`.
-
-## SELinux
-
-Label the production binary with `tuned_exec_t` so system `tuned_t` policy applies:
-
-```bash
-sudo restorecon -v /usr/sbin/tuned-rs
-ps -eZ | grep tuned-rs
-```
 
 ## Performance Benefits
 

@@ -8,7 +8,7 @@ Conflicts=tuned.service cpupower.service auto-cpufreq.service tlp.service power-
 [Service]
 Type=dbus
 BusName=com.redhat.tuned
-ExecStart=/usr/sbin/tuned-rs
+ExecStart=/usr/bin/tuned-rs
 Restart=on-failure
 RestartSec=2
 

@@ -1,6 +1,6 @@
 [service]
 name = "tuned-rs"
 description = "Dynamic system tuning daemon (Rust TuneD)"
-exec = "/usr/sbin/tuned-rs"
+exec = "/usr/bin/tuned-rs"
 after = ["dbus", "udev"]
 restart = "on-failure"

@@ -1,3 +1,0 @@
-# Install the production binary with this context so the existing tuned_t domain
-# rules from system policy apply without a custom module.
-/usr/sbin/tuned-rs	--	system_u:object_r:tuned_exec_t:s0
