@@ -20,18 +20,6 @@ High-performance Rust rewrite of the TuneD system tuning daemon with advanced fe
 - **disk** — readahead (with `=>` floor semantics), elevator, optional device list
 - **acpi** — platform_profile with `|` fallbacks
 
-#### Advanced Plugins (Beyond Original TuneD)
-
-#### Hermes Driver Plugin (NVIDIA GSP)
-- **hermes** — NVIDIA GSP driver tuning via Hermes kernel module
-  - Ring buffer configuration (command/response sizes, overflow thresholds)
-  - Runtime power management (idle timeout, autosuspend)
-  - Display head management (multi-head scanout)
-  - GSP power modes (performance/balanced/powersave)
-  - Firmware validation control
-  - Debug and error recovery settings
-  - Real-time statistics monitoring (ring operations, GSP state transitions)
-
 #### NVIDIA GPU Support
 - **nvidia_power_limit** — Power limit control via nvidia-smi
 - **nvidia_graphics_clock** — Graphics clock frequency tuning
