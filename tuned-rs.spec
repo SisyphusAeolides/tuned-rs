@@ -12,6 +12,7 @@ Source:         %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 BuildRequires:  cargo-rpm-macros >= 24
 BuildRequires:  make
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  systemd-devel
 
 %description
 High-performance Rust rewrite of the TuneD system tuning daemon with advanced
