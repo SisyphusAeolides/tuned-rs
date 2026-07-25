@@ -20,27 +20,44 @@ com.redhat.tuned and com.redhat.tuned.control.
 
 %prep
 %autosetup -p1
+%if ! 0%{?copr_username:1}
 %cargo_prep
+%endif
 
+%if ! 0%{?copr_username:1}
 %generate_buildrequires
 %cargo_generate_buildrequires
+%endif
 
 %build
+%if 0%{?copr_username:1}
+cargo build --release
+%else
 %cargo_build
 %{cargo_license_summary}
 %{cargo_license} > LICENSE.dependencies
+%endif
 
 %install
+%if 0%{?copr_username:1}
+install -D -m 0755 target/release/tuned-rs %{buildroot}%{_bindir}/tuned-rs
+install -D -m 0755 target/release/tuned-rs-ppd %{buildroot}%{_bindir}/tuned-rs-ppd
+%else
 %cargo_install
+%endif
 make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %if %{with check}
 %check
+%if ! 0%{?copr_username:1}
 %cargo_test
+%endif
 %endif
 
 %files
+%if ! 0%{?copr_username:1}
 %license LICENSE.dependencies
+%endif
 %{_docdir}/%{name}/README.md
 %{_bindir}/tuned-rs
 %{_bindir}/tuned-rs-ppd
