@@ -32,7 +32,7 @@ com.redhat.tuned and com.redhat.tuned.control.
 
 %install
 %cargo_install
-%make_install install-data DOCDIR=%{_docdir}/%{name}
+make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %if %{with check}
 %check
