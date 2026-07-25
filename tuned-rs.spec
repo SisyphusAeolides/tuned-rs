@@ -48,6 +48,15 @@ install -D -m 0755 target/release/tuned-rs-ppd %{buildroot}%{_bindir}/tuned-rs-p
 %endif
 make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
+%post
+%systemd_post tuned-rs.service tuned-rs-ppd.service
+
+%preun
+%systemd_preun tuned-rs.service tuned-rs-ppd.service
+
+%postun
+%systemd_postun_with_restart tuned-rs.service tuned-rs-ppd.service
+
 %if %{with check}
 %check
 %if ! 0%{?copr_username:1}
