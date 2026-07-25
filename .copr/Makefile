@@ -4,7 +4,8 @@
 
 srpm:
 	mkdir -p $(outdir)
-	tar --exclude=.git --exclude=tuned-rs-0.1.0.tar.gz -czf tuned-rs-0.1.0.tar.gz --transform="s,^\.,tuned-rs-0.1.0," .
+	tar --exclude=.git --exclude=vendor --exclude=vendor.tar.xz --exclude=tuned-rs-0.1.0.tar.gz -czf /tmp/tuned-rs-0.1.0.tar.gz --transform="s,^\.,tuned-rs-0.1.0," .
+	mv /tmp/tuned-rs-0.1.0.tar.gz tuned-rs-0.1.0.tar.gz
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 	export PATH="$$HOME/.cargo/bin:$$PATH" && cargo vendor --locked vendor
 	tar -cJf vendor.tar.xz vendor/
