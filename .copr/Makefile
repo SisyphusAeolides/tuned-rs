@@ -4,8 +4,9 @@
 
 srpm:
 	mkdir -p $(outdir)
-	git archive --format=tar.gz --prefix=tuned-rs-0.1.0/ HEAD > tuned-rs-0.1.0.tar.gz
-	cargo vendor --locked vendor
+	tar --exclude=.git --exclude=tuned-rs-0.1.0.tar.gz -czf tuned-rs-0.1.0.tar.gz --transform="s,^\.,tuned-rs-0.1.0," .
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+	export PATH="$$HOME/.cargo/bin:$$PATH" && cargo vendor --locked vendor
 	tar -cJf vendor.tar.xz vendor/
 	cp $(spec) .copr/tuned-rs-copr.spec
 	sed -i 's/^Source:.*$$/&\nSource1: vendor.tar.xz/' .copr/tuned-rs-copr.spec
