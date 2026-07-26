@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Version:        0.1.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        High-performance Rust rewrite of the TuneD system tuning daemon
 
 License:        GPL-2.0-or-later
@@ -31,7 +31,7 @@ mkdir -p .cargo
 mv cargo-config.toml .cargo/config.toml
 
 %build
-CARGO_NET_OFFLINE=true cargo build --frozen --release
+CARGO_NET_OFFLINE=true CARGO_PROFILE_RELEASE_DEBUG=2 cargo build --frozen --release
 
 %install
 make install-bin DESTDIR=%{buildroot}
@@ -72,5 +72,8 @@ CARGO_NET_OFFLINE=true cargo test --frozen
 %{_prefix}/lib/tuned/
 
 %changelog
+* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@users.noreply.github.com> - 0.1.0-2
+- Preserve debug information across Fedora and Enterprise Linux build roots
+
 * Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@users.noreply.github.com> - 0.1.0-1
 - Initial package
