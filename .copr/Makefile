@@ -7,7 +7,7 @@ version := 0.1.0
 builddir := $(shell mktemp -d)
 
 srpm:
-	dnf -y install cargo rust rpm-build
+	dnf -y install cargo rust git rpm-build
 	mkdir -p $(outdir)
 	git archive --format=tar.gz --prefix=$(name)-$(version)/ --output=$(builddir)/$(name)-$(version).tar.gz HEAD
 	cd $(builddir) && cargo vendor --locked --manifest-path=$(CURDIR)/Cargo.toml vendor > cargo-config.toml
