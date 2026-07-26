@@ -1,6 +1,6 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use anyhow::{Context, Result};
+use std::path::Path;
+use anyhow::Result;
 use tracing::{debug, error, info, warn};
 use crate::rollback::{rollback_key, Rollback};
 use crate::tuning::modifiers::read_trimmed;
@@ -49,7 +49,7 @@ fn apply_nvme_apst(rollback: &Rollback, value: &str) -> Result<bool> {
     Ok(updated)
 }
 
-fn apply_ssd_trim(rollback: &Rollback, value: &str) -> Result<bool> {
+fn apply_ssd_trim(_rollback: &Rollback, _value: &str) -> Result<bool> {
     debug!("SSD TRIM scheduling via fstrim.timer (systemd service)");
     Ok(false)
 }

@@ -3,7 +3,6 @@ use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMetrics {
@@ -22,8 +21,12 @@ pub struct PerformanceMetrics {
 pub struct TelemetryCollector {
     metrics_history: Vec<PerformanceMetrics>,
     max_history: usize,
-    last_io_stats: Option<(u64, u64)>,
-    last_net_stats: Option<(u64, u64)>,
+}
+
+impl Default for TelemetryCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TelemetryCollector {
@@ -31,8 +34,6 @@ impl TelemetryCollector {
         Self {
             metrics_history: Vec::new(),
             max_history: 1000,
-            last_io_stats: None,
-            last_net_stats: None,
         }
     }
 

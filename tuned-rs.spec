@@ -1,5 +1,3 @@
-%bcond_without check
-
 Name:           tuned-rs
 Version:        0.1.0
 Release:        1%{?dist}
@@ -7,45 +5,36 @@ Summary:        High-performance Rust rewrite of the TuneD system tuning daemon
 
 License:        GPL-2.0-or-later
 URL:            https://github.com/SisyphusAeolides/tuned-rs
-Source:         %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
+Source0:        %{name}-%{version}.tar.gz
+Source1:        vendor.tar.xz
 
-BuildRequires:  cargo-rpm-macros >= 24
+BuildRequires:  cargo >= 1.75
 BuildRequires:  make
+BuildRequires:  rust >= 1.75
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  systemd-devel
+Requires:       dbus
+Requires:       polkit
+Requires:       systemd
+Conflicts:      power-profiles-daemon
+Conflicts:      tuned
+Conflicts:      tuned-ppd
 
 %description
 High-performance Rust rewrite of the TuneD system tuning daemon with advanced
 features beyond the original. Drop-in D-Bus API compatibility with
-com.redhat.tuned and com.redhat.tuned.control.
+the TuneD daemon and control interfaces.
 
 %prep
-%autosetup -p1
-%if ! 0%{?copr_username:1}
-%cargo_prep
-%endif
-
-%if ! 0%{?copr_username:1}
-%generate_buildrequires
-%cargo_generate_buildrequires
-%endif
+%autosetup -p1 -a 1
+mkdir -p .cargo
+mv cargo-config.toml .cargo/config.toml
 
 %build
-%if 0%{?copr_username:1}
-cargo build --release
-%else
-%cargo_build
-%{cargo_license_summary}
-%{cargo_license} > LICENSE.dependencies
-%endif
+CARGO_NET_OFFLINE=true cargo build --frozen --release
 
 %install
-%if 0%{?copr_username:1}
-install -D -m 0755 target/release/tuned-rs %{buildroot}%{_bindir}/tuned-rs
-install -D -m 0755 target/release/tuned-rs-ppd %{buildroot}%{_bindir}/tuned-rs-ppd
-%else
-%cargo_install
-%endif
+make install-bin DESTDIR=%{buildroot}
 make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %post
@@ -57,20 +46,16 @@ make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 %postun
 %systemd_postun_with_restart tuned-rs.service tuned-rs-ppd.service
 
-%if %{with check}
 %check
-%if ! 0%{?copr_username:1}
-%cargo_test
-%endif
-%endif
+CARGO_NET_OFFLINE=true cargo test --frozen
 
 %files
-%if ! 0%{?copr_username:1}
-%license LICENSE.dependencies
-%endif
+%license LICENSE
 %{_docdir}/%{name}/README.md
 %{_bindir}/tuned-rs
 %{_bindir}/tuned-rs-ppd
+%{_mandir}/man8/tuned-rs.8*
+%{_mandir}/man8/tuned-rs-ppd.8*
 %{_unitdir}/tuned-rs.service
 %{_unitdir}/tuned-rs-ppd.service
 %{_datadir}/dbus-1/system.d/com.redhat.tuned.conf
@@ -87,5 +72,5 @@ make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 %{_prefix}/lib/tuned/
 
 %changelog
-* Sat Jul 25 2026 Kenny Glowner <SisyphusAeolides@users.noreply.github.com> - 0.1.0-1
+* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@users.noreply.github.com> - 0.1.0-1
 - Initial package

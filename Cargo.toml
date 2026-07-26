@@ -2,6 +2,11 @@
 name = "tuned-rs"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
+description = "High-performance Rust implementation of the TuneD system tuning daemon"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/SisyphusAeolides/tuned-rs"
+readme = "README.md"
 
 [lib]
 name = "tuned_rs"

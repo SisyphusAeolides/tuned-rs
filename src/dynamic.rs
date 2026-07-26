@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use anyhow::{Context, Result};
-use tracing::{debug, info, warn};
+use anyhow::Result;
+use tracing::info;
 
 pub struct WorkloadDetector {
     last_check: SystemTime,
@@ -18,6 +18,12 @@ pub enum WorkloadType {
     Heavy,
     Gaming,
     Compilation,
+}
+
+impl Default for WorkloadDetector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WorkloadDetector {
@@ -41,7 +47,7 @@ impl WorkloadDetector {
         let gpu_usage = self.get_gpu_usage()?;
 
         let workload = match (cpu_usage, io_usage, gpu_usage) {
-            (c, _, g) if g > 80.0 => WorkloadType::Gaming,
+            (_, _, g) if g > 80.0 => WorkloadType::Gaming,
             (c, _, _) if c > 90.0 => WorkloadType::Compilation,
             (c, i, _) if c > 60.0 || i > 60.0 => WorkloadType::Heavy,
             (c, i, _) if c > 30.0 || i > 30.0 => WorkloadType::Moderate,

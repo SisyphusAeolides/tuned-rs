@@ -38,16 +38,18 @@ High-performance Rust rewrite of the TuneD system tuning daemon with advanced fe
 
 ## Build
 
+Install the build dependencies on Fedora, RHEL, or an EPEL-enabled system:
+
+```bash
+sudo dnf install cargo rust make systemd-devel
+```
+
+Then build and test:
+
 ```bash
 cargo build --release
 make check
 make test
-```
-
-For NixOS:
-```bash
-nix-shell
-cargo build --release
 ```
 
 ## Install
@@ -55,17 +57,21 @@ cargo build --release
 Install conflicts with the Python `tuned` package because both services claim
 `com.redhat.tuned` on the system bus.
 
-### Arch Linux package
+### COPR package
 
 ```bash
-git clone https://github.com/SisyphusAeolides/arch-pkgbuilds.git
-cd arch-pkgbuilds/tuned-rs
-makepkg -si
+sudo dnf install dnf-plugins-core
+sudo dnf copr enable sisyphuscode/tuned-rs
+sudo dnf install tuned-rs
 ```
+
+The COPR builds for EPEL 9, EPEL 10, RHEL 9, RHEL 10, Fedora 44, and Fedora
+Rawhide on x86_64.
 
 ### From source
 
 ```bash
+sudo dnf install cargo rust make systemd-devel
 make
 sudo make install
 sudo systemctl enable --now tuned-rs

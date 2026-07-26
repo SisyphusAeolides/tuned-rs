@@ -5,28 +5,36 @@ DBUSCONFDIR ?= /usr/share/dbus-1/system.d
 DBUSSERVICEDIR ?= /usr/share/dbus-1/system-services
 POLKITDIR ?= /usr/share/polkit-1/actions
 DOCDIR ?= /usr/share/doc/tuned-rs
+MANDIR ?= /usr/share/man
 ETCTUNEDDIR ?= /etc/tuned
 PROFILEDIR ?= /usr/lib/tuned/profiles
 
-.PHONY: all build test check install install-ppd install-config install-profiles tarball srpm
+.PHONY: all build test check install install-bin install-data install-config install-profiles tarball vendor srpm
 
 all: build
 
 tarball:
-	git archive --format=tar.gz --prefix=tuned-rs-0.1.0/ HEAD > tuned-rs-0.1.0.tar.gz
+	git archive --format=tar.gz --prefix=tuned-rs-0.1.0/ --output=tuned-rs-0.1.0.tar.gz HEAD
 
-srpm: tarball
+vendor:
+	builddir="$$(mktemp -d)"; \
+	cd "$$builddir"; \
+	cargo vendor --locked --manifest-path="$(CURDIR)/Cargo.toml" vendor > cargo-config.toml; \
+	tar -cJf "$(CURDIR)/vendor.tar.xz" vendor cargo-config.toml; \
+	rm -rf "$$builddir"
+
+srpm: tarball vendor
 	rpmbuild -bs --define "_sourcedir $(PWD)" --define "_srcrpmdir $(PWD)" tuned-rs.spec
 
 build:
-	cargo build --release
+	cargo build --locked --release
 
 check:
-	cargo check
-	cargo clippy -- -D warnings
+	cargo check --locked
+	cargo clippy --locked -- -D warnings
 
 test:
-	cargo test
+	cargo test --locked
 
 install: build install-bin install-data
 
@@ -45,6 +53,8 @@ install-data: install-config install-profiles
 	install -D -m 0644 packaging/net.hadess.PowerProfiles.service $(DESTDIR)$(DBUSSERVICEDIR)/net.hadess.PowerProfiles.service
 	install -D -m 0644 packaging/org.freedesktop.UPower.PowerProfiles.policy $(DESTDIR)$(POLKITDIR)/org.freedesktop.UPower.PowerProfiles.policy
 	install -D -m 0644 packaging/net.hadess.PowerProfiles.policy $(DESTDIR)$(POLKITDIR)/net.hadess.PowerProfiles.policy
+	install -D -m 0644 packaging/tuned-rs.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs.8
+	install -D -m 0644 packaging/tuned-rs-ppd.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs-ppd.8
 
 install-config:
 	install -d $(DESTDIR)$(ETCTUNEDDIR)/profiles
