@@ -42,9 +42,13 @@ packaging-check:
 	grep -Eq '^Provides: +tuned-ppd( |%)' tuned-rs.spec
 	grep -Eq '^Obsoletes: +tuned-ppd( |<)' tuned-rs.spec
 	grep -q '%{_sbindir}/tuned-adm' tuned-rs.spec
+	grep -q '%{_sbindir}/tuned-ppd' tuned-rs.spec
 	grep -q '%{_unitdir}/tuned.service' tuned-rs.spec
+	grep -q '%{_unitdir}/tuned-ppd.service' tuned-rs.spec
 	grep -q 'ExecStart=/usr/sbin/tuned' packaging/tuned-rs.service
+	grep -q 'ExecStart=/usr/sbin/tuned-ppd' packaging/tuned-rs-ppd.service
 	! grep -q 'Conflicts=.*tuned.service' packaging/tuned-rs.service
+	! grep -q 'Conflicts=.*tuned-ppd.service' packaging/tuned-rs-ppd.service
 	test -f packaging/com.redhat.tuned.service
 	test -f packaging/tuned-adm.8
 
@@ -65,6 +69,7 @@ install-bin:
 	install -D -m 0755 target/release/tuned-rs $(DESTDIR)$(SBINDIR)/tuned
 	install -D -m 0755 target/release/tuned-adm $(DESTDIR)$(SBINDIR)/tuned-adm
 	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(BINDIR)/tuned-rs-ppd
+	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(SBINDIR)/tuned-ppd
 
 install-data: install-config install-profiles
 	install -D -m 0644 packaging/tuned-rs.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-rs.service
@@ -74,6 +79,7 @@ install-data: install-config install-profiles
 	install -D -m 0644 packaging/com.redhat.tuned.policy $(DESTDIR)$(POLKITDIR)/com.redhat.tuned.policy
 	install -D -m 0644 README.md $(DESTDIR)$(DOCDIR)/README.md
 	install -D -m 0644 packaging/tuned-rs-ppd.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-rs-ppd.service
+	ln -sfn tuned-rs-ppd.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-ppd.service
 	install -D -m 0644 packaging/org.freedesktop.UPower.PowerProfiles.conf $(DESTDIR)$(DBUSCONFDIR)/org.freedesktop.UPower.PowerProfiles.conf
 	install -D -m 0644 packaging/org.freedesktop.UPower.PowerProfiles.service $(DESTDIR)$(DBUSSERVICEDIR)/org.freedesktop.UPower.PowerProfiles.service
 	install -D -m 0644 packaging/net.hadess.PowerProfiles.service $(DESTDIR)$(DBUSSERVICEDIR)/net.hadess.PowerProfiles.service
