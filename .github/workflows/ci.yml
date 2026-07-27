@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.75
+        run: rustup toolchain install 1.75.0 --profile minimal --component clippy,rustfmt
+
+      - name: Check formatting
+        run: cargo +1.75.0 fmt --all --check
+
+      - name: Check workspace
+        run: cargo +1.75.0 check --locked --all-targets
+
+      - name: Lint workspace
+        run: cargo +1.75.0 clippy --locked --all-targets -- -D warnings
+
+      - name: Test workspace
+        run: cargo +1.75.0 test --locked --all-targets
