@@ -56,11 +56,14 @@ else
 fi
 
 if command -v idris2 >/dev/null 2>&1; then
-    idris2 --check formal/idris2/TunedProfile.idr
-    idris2 --check formal/idris2/TunedInstances.idr
-    idris2 --check formal/idris2/TunedVerification.idr
-    idris2 --check formal/idris2/TunedUnits.idr
-    idris2 --check formal/idris2/TunedRuntime.idr
+    (
+        cd formal/idris2
+        idris2 --check TunedProfile.idr
+        idris2 --check TunedInstances.idr
+        idris2 --check TunedVerification.idr
+        idris2 --check TunedUnits.idr
+        idris2 --check TunedRuntime.idr
+    )
     echo "Idris profile, instance, verification, unit, and runtime models: passed"
 else
     echo "Idris models: skipped (idris2 not found)" >&2
