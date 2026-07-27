@@ -8,6 +8,7 @@ use zbus::{connection::Builder, interface, Connection, SignalContext};
 use crate::config;
 use crate::daemon::Daemon;
 use crate::engine;
+use crate::log_capture;
 use crate::plugins;
 use crate::polkit::{self, Polkit};
 
@@ -85,6 +86,9 @@ impl TunedController {
         if let Err(error) = Self::profile_changed(&ctxt, profile_name, result.0, &result.1).await {
             error!("Failed to emit profile_changed signal: {error}");
         }
+        self.daemon
+            .emit_profile_changed(profile_name, result.0, &result.1)
+            .await;
         result
     }
 
@@ -102,6 +106,9 @@ impl TunedController {
         if let Err(error) = Self::profile_changed(&ctxt, &profile, result.0, &result.1).await {
             error!("Failed to emit profile_changed signal: {error}");
         }
+        self.daemon
+            .emit_profile_changed(&profile, result.0, &result.1)
+            .await;
         result
     }
 
@@ -205,22 +212,22 @@ impl TunedController {
     #[zbus(name = "log_capture_start")]
     async fn log_capture_start(
         &self,
-        _log_level: i32,
-        _timeout: i32,
+        log_level: i32,
+        timeout: i32,
         #[zbus(header)] header: Header<'_>,
     ) -> String {
         if !self.authorized(&header, "log_capture_start").await {
             return String::new();
         }
-        String::new()
+        log_capture::global_store().start(log_level, timeout)
     }
 
     #[zbus(name = "log_capture_finish")]
-    async fn log_capture_finish(&self, _token: &str, #[zbus(header)] header: Header<'_>) -> String {
+    async fn log_capture_finish(&self, token: &str, #[zbus(header)] header: Header<'_>) -> String {
         if !self.authorized(&header, "log_capture_finish").await {
             return String::new();
         }
-        String::new()
+        log_capture::global_store().finish(token)
     }
 
     #[zbus(name = "get_all_plugins")]
@@ -275,7 +282,7 @@ impl TunedController {
         {
             return false;
         }
-        false
+        self.daemon.register_socket_signal_path(path).await
     }
 
     #[zbus(name = "instance_acquire_devices")]
