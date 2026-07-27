@@ -5,11 +5,13 @@ pub mod engine;
 pub mod hal;
 pub mod instances;
 pub mod ipc;
+pub mod log_capture;
 pub mod monitor;
 pub mod plugins;
 pub mod polkit;
 pub mod profile;
 pub mod rollback;
+pub mod socket_signals;
 pub mod telemetry;
 pub mod tuning;
 
