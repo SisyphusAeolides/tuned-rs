@@ -17,6 +17,7 @@ pub mod socket_signals;
 pub mod telemetry;
 pub mod tuning;
 pub mod verification;
+pub mod verification_units;
 
 pub mod ppd;
 
