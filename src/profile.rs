@@ -8,11 +8,21 @@ use tracing::{info, warn};
 
 use crate::config::{self, PROFILE_FILE};
 use crate::engine;
+use crate::profile_units::{
+    merge_options, merge_units, merge_variables, option_value, OrderedOptions, ProfileUnit,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct CpuSettings {
     pub governor: Option<String>,
+    pub energy_perf_bias: Option<String>,
     pub energy_performance_preference: Option<String>,
+    pub min_perf_pct: Option<String>,
+    pub max_perf_pct: Option<String>,
+    pub boost: Option<String>,
+    pub force_latency: Option<String>,
+    pub pm_qos_resume_latency_us: Option<String>,
+    pub sampling_down_factor: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -39,6 +49,15 @@ pub struct NetworkSettings {
     pub tcp_timestamps: Option<String>,
     pub tcp_sack: Option<String>,
     pub tcp_fastopen: Option<String>,
+    pub tcp_rmem: Option<String>,
+    pub tcp_wmem: Option<String>,
+    pub tcp_max_syn_backlog: Option<String>,
+    pub tcp_tw_reuse: Option<String>,
+    pub tcp_fin_timeout: Option<String>,
+    pub core_rmem_max: Option<String>,
+    pub core_wmem_max: Option<String>,
+    pub core_netdev_max_backlog: Option<String>,
+    pub core_somaxconn: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -46,13 +65,16 @@ pub struct AcpiSettings {
     pub platform_profile: Option<String>,
 }
 
-pub type PluginOptions = Vec<(String, String)>;
+pub type PluginOptions = OrderedOptions;
 
 #[derive(Debug, Clone, Default)]
 pub struct Profile {
     pub name: String,
     pub summary: String,
     pub description: String,
+    pub main_options: PluginOptions,
+    pub variables: PluginOptions,
+    pub units: Vec<ProfileUnit>,
     pub cpu: CpuSettings,
     pub vm: VmSettings,
     pub disk: DiskSettings,
@@ -64,6 +86,7 @@ pub struct Profile {
     pub thermal: PluginOptions,
     pub battery: PluginOptions,
     pub hermes: PluginOptions,
+    variable_policy: Option<(bool, bool)>,
 }
 
 impl Profile {
@@ -75,57 +98,156 @@ impl Profile {
             self.description = newer.description;
         }
 
-        merge_optional(&mut self.cpu.governor, newer.cpu.governor);
-        merge_optional(
-            &mut self.cpu.energy_performance_preference,
-            newer.cpu.energy_performance_preference,
-        );
+        merge_options(&mut self.main_options, newer.main_options);
+        if !newer.variables.is_empty() || newer.variable_policy.is_some() {
+            let (replace, prepend) = newer.variable_policy.unwrap_or((false, false));
+            merge_variables(&mut self.variables, newer.variables, replace, prepend);
+            if newer.variable_policy.is_some() {
+                self.variable_policy = newer.variable_policy;
+            }
+        }
+        merge_units(&mut self.units, newer.units);
+        self.rebuild_legacy_projection();
+    }
 
-        merge_optional(
-            &mut self.vm.transparent_hugepages,
-            newer.vm.transparent_hugepages,
-        );
-        merge_optional(
-            &mut self.vm.transparent_hugepage_defrag,
-            newer.vm.transparent_hugepage_defrag,
-        );
-        merge_optional(&mut self.vm.dirty_bytes, newer.vm.dirty_bytes);
-        merge_optional(&mut self.vm.dirty_ratio, newer.vm.dirty_ratio);
-        merge_optional(
-            &mut self.vm.dirty_background_bytes,
-            newer.vm.dirty_background_bytes,
-        );
-        merge_optional(
-            &mut self.vm.dirty_background_ratio,
-            newer.vm.dirty_background_ratio,
-        );
+    pub fn units_of_type(&self, plugin_type: &str) -> impl Iterator<Item = &ProfileUnit> {
+        self.units
+            .iter()
+            .filter(move |unit| unit.plugin_type == plugin_type)
+    }
 
-        merge_optional(&mut self.disk.devices, newer.disk.devices);
-        merge_optional(&mut self.disk.elevator, newer.disk.elevator);
-        merge_optional(&mut self.disk.readahead, newer.disk.readahead);
-        merge_optional(&mut self.acpi.platform_profile, newer.acpi.platform_profile);
+    fn rebuild_legacy_projection(&mut self) {
+        let mut cpu = CpuSettings::default();
+        let mut vm = VmSettings::default();
+        let mut disk = DiskSettings::default();
+        let mut acpi = AcpiSettings::default();
+        let mut network = NetworkSettings::default();
+        let mut sysctl = HashMap::new();
+        let mut gpu = PluginOptions::new();
+        let mut storage = PluginOptions::new();
+        let mut thermal = PluginOptions::new();
+        let mut battery = PluginOptions::new();
+        let mut hermes = PluginOptions::new();
 
-        merge_optional(
-            &mut self.network.tcp_congestion_control,
-            newer.network.tcp_congestion_control,
-        );
-        merge_optional(
-            &mut self.network.tcp_window_scaling,
-            newer.network.tcp_window_scaling,
-        );
-        merge_optional(
-            &mut self.network.tcp_timestamps,
-            newer.network.tcp_timestamps,
-        );
-        merge_optional(&mut self.network.tcp_sack, newer.network.tcp_sack);
-        merge_optional(&mut self.network.tcp_fastopen, newer.network.tcp_fastopen);
+        for unit in &self.units {
+            if !unit.enabled || !projection_is_safe(unit) {
+                continue;
+            }
+            match unit.plugin_type.as_str() {
+                "cpu" => {
+                    set_from_unit(&mut cpu.governor, unit, "governor");
+                    set_from_unit(&mut cpu.energy_perf_bias, unit, "energy_perf_bias");
+                    set_from_unit(
+                        &mut cpu.energy_performance_preference,
+                        unit,
+                        "energy_performance_preference",
+                    );
+                    set_from_unit(&mut cpu.min_perf_pct, unit, "min_perf_pct");
+                    set_from_unit(&mut cpu.max_perf_pct, unit, "max_perf_pct");
+                    set_from_unit(&mut cpu.boost, unit, "boost");
+                    set_from_unit(&mut cpu.force_latency, unit, "force_latency");
+                    set_from_unit(
+                        &mut cpu.pm_qos_resume_latency_us,
+                        unit,
+                        "pm_qos_resume_latency_us",
+                    );
+                    set_from_unit(
+                        &mut cpu.sampling_down_factor,
+                        unit,
+                        "sampling_down_factor",
+                    );
+                }
+                "vm" => {
+                    set_from_unit_aliases(
+                        &mut vm.transparent_hugepages,
+                        unit,
+                        &["transparent_hugepages", "transparent_hugepage"],
+                    );
+                    set_from_unit(
+                        &mut vm.transparent_hugepage_defrag,
+                        unit,
+                        "transparent_hugepage.defrag",
+                    );
+                    set_from_unit(&mut vm.dirty_bytes, unit, "dirty_bytes");
+                    set_from_unit(&mut vm.dirty_ratio, unit, "dirty_ratio");
+                    set_from_unit(
+                        &mut vm.dirty_background_bytes,
+                        unit,
+                        "dirty_background_bytes",
+                    );
+                    set_from_unit(
+                        &mut vm.dirty_background_ratio,
+                        unit,
+                        "dirty_background_ratio",
+                    );
+                }
+                "disk" => {
+                    if unit.devices != "*" {
+                        disk.devices = Some(unit.devices.clone());
+                    }
+                    set_from_unit(&mut disk.elevator, unit, "elevator");
+                    set_from_unit(&mut disk.readahead, unit, "readahead");
+                }
+                "acpi" => {
+                    set_from_unit(&mut acpi.platform_profile, unit, "platform_profile");
+                }
+                "network" | "net" => {
+                    set_from_unit(
+                        &mut network.tcp_congestion_control,
+                        unit,
+                        "tcp_congestion_control",
+                    );
+                    set_from_unit(
+                        &mut network.tcp_window_scaling,
+                        unit,
+                        "tcp_window_scaling",
+                    );
+                    set_from_unit(&mut network.tcp_timestamps, unit, "tcp_timestamps");
+                    set_from_unit(&mut network.tcp_sack, unit, "tcp_sack");
+                    set_from_unit(&mut network.tcp_fastopen, unit, "tcp_fastopen");
+                    set_from_unit(&mut network.tcp_rmem, unit, "tcp_rmem");
+                    set_from_unit(&mut network.tcp_wmem, unit, "tcp_wmem");
+                    set_from_unit(
+                        &mut network.tcp_max_syn_backlog,
+                        unit,
+                        "tcp_max_syn_backlog",
+                    );
+                    set_from_unit(&mut network.tcp_tw_reuse, unit, "tcp_tw_reuse");
+                    set_from_unit(&mut network.tcp_fin_timeout, unit, "tcp_fin_timeout");
+                    set_from_unit(&mut network.core_rmem_max, unit, "core_rmem_max");
+                    set_from_unit(&mut network.core_wmem_max, unit, "core_wmem_max");
+                    set_from_unit(
+                        &mut network.core_netdev_max_backlog,
+                        unit,
+                        "core_netdev_max_backlog",
+                    );
+                    set_from_unit(&mut network.core_somaxconn, unit, "core_somaxconn");
+                }
+                "sysctl" => {
+                    for (key, value) in &unit.options {
+                        sysctl.insert(key.clone(), value.clone());
+                    }
+                }
+                "gpu" => merge_options(&mut gpu, unit.options.clone()),
+                "storage" => merge_options(&mut storage, unit.options.clone()),
+                "thermal" => merge_options(&mut thermal, unit.options.clone()),
+                "battery" => merge_options(&mut battery, unit.options.clone()),
+                "hermes" => merge_options(&mut hermes, unit.options.clone()),
+                _ => {}
+            }
+        }
 
-        self.sysctl.extend(newer.sysctl);
-        merge_plugin_options(&mut self.gpu, newer.gpu);
-        merge_plugin_options(&mut self.storage, newer.storage);
-        merge_plugin_options(&mut self.thermal, newer.thermal);
-        merge_plugin_options(&mut self.battery, newer.battery);
-        merge_plugin_options(&mut self.hermes, newer.hermes);
+        self.cpu = cpu;
+        self.vm = vm;
+        self.disk = disk;
+        self.acpi = acpi;
+        self.network = network;
+        self.sysctl = sysctl;
+        self.gpu = gpu;
+        self.storage = storage;
+        self.thermal = thermal;
+        self.battery = battery;
+        self.hermes = hermes;
     }
 }
 
@@ -151,6 +273,7 @@ impl ProfileCatalog {
                         profile.merge_from(layer);
                     }
                     profile.name = name.clone();
+                    profile.rebuild_legacy_projection();
                     profiles.insert(name, profile);
                 }
                 Err(error) => warn!("Skipping profile '{name}': {error}"),
@@ -189,6 +312,7 @@ impl ProfileCatalog {
             profile.merge_from(self.profiles.get(name)?.clone());
         }
         profile.name = normalized;
+        profile.rebuild_legacy_projection();
         Some(profile)
     }
 
@@ -281,10 +405,7 @@ fn load_profile_layers(
 fn read_includes(path: &Path) -> Result<Vec<String>> {
     let ini = read_ini(path)?;
     let profile_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let include = ini
-        .get("main", "include")
-        .map(|value| expand_profile_dir(&value, profile_dir))
-        .unwrap_or_default();
+    let include = section_value(&ini, profile_dir, "main", "include").unwrap_or_default();
 
     Ok(include
         .split([',', ';'])
@@ -297,83 +418,50 @@ fn read_includes(path: &Path) -> Result<Vec<String>> {
 pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
     let ini = read_ini(path)?;
     let profile_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let main_options = section_options(&ini, profile_dir, "main");
+    let summary = option_value(&main_options, "summary")
+        .unwrap_or_default()
+        .to_string();
+    let description = option_value(&main_options, "description")
+        .unwrap_or_default()
+        .to_string();
 
-    let summary = section_value(&ini, profile_dir, "main", "summary").unwrap_or_default();
-    let description = section_value(&ini, profile_dir, "main", "description").unwrap_or_default();
-
-    let cpu = CpuSettings {
-        governor: section_value(&ini, profile_dir, "cpu", "governor"),
-        energy_performance_preference: section_value(
-            &ini,
-            profile_dir,
-            "cpu",
-            "energy_performance_preference",
-        ),
-    };
-
-    let vm = VmSettings {
-        transparent_hugepages: section_value(&ini, profile_dir, "vm", "transparent_hugepages")
-            .or_else(|| section_value(&ini, profile_dir, "vm", "transparent_hugepage")),
-        transparent_hugepage_defrag: section_value(
-            &ini,
-            profile_dir,
-            "vm",
-            "transparent_hugepage.defrag",
-        ),
-        dirty_bytes: section_value(&ini, profile_dir, "vm", "dirty_bytes"),
-        dirty_ratio: section_value(&ini, profile_dir, "vm", "dirty_ratio"),
-        dirty_background_bytes: section_value(&ini, profile_dir, "vm", "dirty_background_bytes"),
-        dirty_background_ratio: section_value(&ini, profile_dir, "vm", "dirty_background_ratio"),
-    };
-
-    let disk = DiskSettings {
-        devices: section_value(&ini, profile_dir, "disk", "devices"),
-        elevator: section_value(&ini, profile_dir, "disk", "elevator"),
-        readahead: section_value(&ini, profile_dir, "disk", "readahead"),
-    };
-
-    let acpi = AcpiSettings {
-        platform_profile: section_value(&ini, profile_dir, "acpi", "platform_profile"),
-    };
-
-    let network = NetworkSettings {
-        tcp_congestion_control: section_value(
-            &ini,
-            profile_dir,
-            "network",
-            "tcp_congestion_control",
-        ),
-        tcp_window_scaling: section_value(&ini, profile_dir, "network", "tcp_window_scaling"),
-        tcp_timestamps: section_value(&ini, profile_dir, "network", "tcp_timestamps"),
-        tcp_sack: section_value(&ini, profile_dir, "network", "tcp_sack"),
-        tcp_fastopen: section_value(&ini, profile_dir, "network", "tcp_fastopen"),
-    };
-
-    let mut sysctl = HashMap::new();
-    if let Some(section) = ini.get_map_ref().get("sysctl") {
-        for (key, value) in section {
-            if let Some(value) = value {
-                sysctl.insert(key.clone(), expand_profile_dir(value.trim(), profile_dir));
-            }
+    let mut variables = PluginOptions::new();
+    let mut variable_policy = None;
+    let mut units = Vec::new();
+    for section in ordered_section_names(path, &ini)? {
+        if section.eq_ignore_ascii_case("main") {
+            continue;
+        }
+        let unit = ProfileUnit::from_options(
+            &section,
+            section_options(&ini, profile_dir, &section),
+        )?;
+        if unit.plugin_type == "variables" {
+            variable_policy = Some((unit.replace, unit.prepend));
+            merge_variables(
+                &mut variables,
+                unit.options,
+                unit.replace,
+                unit.prepend,
+            );
+        } else {
+            units.push(unit);
         }
     }
 
-    Ok(Profile {
+    let mut profile = Profile {
         name: name.to_string(),
         summary,
         description,
-        cpu,
-        vm,
-        disk,
-        acpi,
-        network,
-        sysctl,
-        gpu: section_options(&ini, profile_dir, "gpu"),
-        storage: section_options(&ini, profile_dir, "storage"),
-        thermal: section_options(&ini, profile_dir, "thermal"),
-        battery: section_options(&ini, profile_dir, "battery"),
-        hermes: section_options(&ini, profile_dir, "hermes"),
-    })
+        main_options,
+        variables,
+        units,
+        variable_policy,
+        ..Profile::default()
+    };
+    profile.rebuild_legacy_projection();
+    Ok(profile)
 }
 
 fn read_ini(path: &Path) -> Result<Ini> {
@@ -383,27 +471,83 @@ fn read_ini(path: &Path) -> Result<Ini> {
     Ok(ini)
 }
 
+fn ordered_section_names(path: &Path, ini: &Ini) -> Result<Vec<String>> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let mut sections = Vec::new();
+    let mut seen = HashSet::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if !line.starts_with('[') {
+            continue;
+        }
+        let Some(end) = line.find(']') else {
+            continue;
+        };
+        let section = line[1..end].trim();
+        if section.is_empty() {
+            continue;
+        }
+        let key = section.to_ascii_lowercase();
+        if seen.insert(key) {
+            sections.push(section.to_string());
+        }
+    }
+
+    let mut remaining = ini
+        .get_map_ref()
+        .keys()
+        .filter(|section| !seen.contains(&section.to_ascii_lowercase()))
+        .cloned()
+        .collect::<Vec<_>>();
+    remaining.sort_unstable();
+    sections.extend(remaining);
+    Ok(sections)
+}
+
 fn section_value(ini: &Ini, profile_dir: &Path, section: &str, key: &str) -> Option<String> {
-    ini.get(section, key)
+    section_entries(ini, section)
+        .and_then(|entries| {
+            entries
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                .and_then(|(_, value)| value.as_ref())
+        })
         .map(|value| expand_profile_dir(value.trim(), profile_dir))
         .filter(|value| !value.is_empty())
 }
 
 fn section_options(ini: &Ini, profile_dir: &Path, section: &str) -> PluginOptions {
-    let mut options = ini
-        .get_map_ref()
-        .get(section)
+    let mut options = section_entries(ini, section)
         .into_iter()
         .flat_map(|entries| entries.iter())
-        .filter_map(|(key, value)| {
-            value
-                .as_ref()
-                .map(|value| (key.clone(), expand_profile_dir(value.trim(), profile_dir)))
+        .map(|(key, value)| {
+            (
+                key.clone(),
+                value
+                    .as_ref()
+                    .map(|value| expand_profile_dir(value.trim(), profile_dir))
+                    .unwrap_or_default(),
+            )
         })
-        .filter(|(_, value)| !value.is_empty())
         .collect::<Vec<_>>();
     options.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     options
+}
+
+fn section_entries<'a>(
+    ini: &'a Ini,
+    section: &str,
+) -> Option<&'a HashMap<String, Option<String>>> {
+    ini.get_map_ref()
+        .get(section)
+        .or_else(|| {
+            ini.get_map_ref()
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(section))
+                .map(|(_, entries)| entries)
+        })
 }
 
 fn expand_profile_dir(value: &str, profile_dir: &Path) -> String {
@@ -417,18 +561,24 @@ fn expand_profile_dir(value: &str, profile_dir: &Path) -> String {
         .replace(PLACEHOLDER, ESCAPED_MARKER)
 }
 
-fn merge_optional<T>(current: &mut Option<T>, newer: Option<T>) {
-    if newer.is_some() {
-        *current = newer;
+fn projection_is_safe(unit: &ProfileUnit) -> bool {
+    unit.devices_udev_regex.is_none()
+        && unit.cpuinfo_regex.is_none()
+        && unit.uname_regex.is_none()
+        && (unit.devices == "*" || unit.plugin_type == "disk")
+}
+
+fn set_from_unit(target: &mut Option<String>, unit: &ProfileUnit, option: &str) {
+    if let Some(value) = unit.option(option) {
+        *target = Some(value.to_string());
     }
 }
 
-fn merge_plugin_options(current: &mut PluginOptions, newer: PluginOptions) {
-    for (key, value) in newer {
-        if let Some((_, current_value)) = current.iter_mut().find(|(name, _)| name == &key) {
-            *current_value = value;
-        } else {
-            current.push((key, value));
+fn set_from_unit_aliases(target: &mut Option<String>, unit: &ProfileUnit, options: &[&str]) {
+    for option in options {
+        if let Some(value) = unit.option(option) {
+            *target = Some(value.to_string());
+            return;
         }
     }
 }
@@ -486,9 +636,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn option_value<'a>(options: &'a PluginOptions, key: &str) -> Option<&'a str> {
-        options
-            .iter()
-            .find_map(|(name, value)| (name == key).then_some(value.as_str()))
+        crate::profile_units::option_value(options, key)
     }
 
     fn write_profile(root: &Path, name: &str, body: &str) {
@@ -517,18 +665,13 @@ mod tests {
             profile.acpi.platform_profile.as_deref(),
             Some("performance|balanced")
         );
+        assert_eq!(profile.sysctl.get("vm.swappiness"), Some(&"10".to_string()));
         assert_eq!(
             profile.sysctl.get("net.core.somaxconn"),
             Some(&">2048".to_string())
         );
-        assert_eq!(
-            option_value(&profile.gpu, "nvidia_power_limit"),
-            Some("250")
-        );
-        assert_eq!(
-            option_value(&profile.gpu, "amd_power_profile"),
-            Some("high")
-        );
+        assert_eq!(option_value(&profile.gpu, "nvidia_power_limit"), Some("250"));
+        assert_eq!(option_value(&profile.gpu, "amd_power_profile"), Some("high"));
         assert_eq!(option_value(&profile.storage, "nvme_apst"), Some("0"));
         assert_eq!(
             option_value(&profile.storage, "io_scheduler"),
@@ -549,6 +692,79 @@ mod tests {
             Some("performance")
         );
         assert_eq!(option_value(&profile.hermes, "cmd_ring_size"), Some("4096"));
+    }
+
+    #[test]
+    fn preserves_named_units_and_skips_conditional_projection() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "server",
+            "[main]\nsummary=Server\n\n[variables]\nthunderx=CPU part.*516\n\n[vm]\ndirty_ratio=20\n\n[vm.thunderx]\ntype=vm\nuname_regex=aarch64\ncpuinfo_regex=${thunderx}\ntransparent_hugepages=never\n\n[sysctl.thunderx]\ntype=sysctl\nuname_regex=aarch64\nkernel.numa_balancing=0\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let profile = catalog.get("server").unwrap();
+        assert_eq!(profile.units.len(), 3);
+        let thunderx = profile
+            .units
+            .iter()
+            .find(|unit| unit.name == "vm.thunderx")
+            .unwrap();
+        assert_eq!(thunderx.plugin_type, "vm");
+        assert_eq!(thunderx.uname_regex.as_deref(), Some("aarch64"));
+        assert_eq!(thunderx.cpuinfo_regex.as_deref(), Some("${thunderx}"));
+        assert_eq!(thunderx.option("transparent_hugepages"), Some("never"));
+        assert_eq!(profile.vm.dirty_ratio.as_deref(), Some("20"));
+        assert_eq!(profile.vm.transparent_hugepages, None);
+        assert!(!profile.sysctl.contains_key("kernel.numa_balancing"));
+        assert_eq!(option_value(&profile.variables, "thunderx"), Some("CPU part.*516"));
+    }
+
+    #[test]
+    fn unit_drop_and_replace_match_upstream_merge_rules() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "base",
+            "[main]\nsummary=Base\n\n[cpu]\ngovernor=powersave\nboost=0\n\n[sysctl]\nvm.swappiness=60\n",
+        );
+        write_profile(
+            &profiles,
+            "child",
+            "[main]\ninclude=base\n\n[cpu]\ndrop=boost\ngovernor=performance\n\n[sysctl]\nreplace=true\nkernel.nmi_watchdog=0\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let child = catalog.get("child").unwrap();
+        let cpu = child.units.iter().find(|unit| unit.name == "cpu").unwrap();
+        assert_eq!(cpu.option("governor"), Some("performance"));
+        assert_eq!(cpu.option("boost"), None);
+        assert_eq!(child.cpu.governor.as_deref(), Some("performance"));
+        assert_eq!(child.cpu.boost, None);
+        assert!(!child.sysctl.contains_key("vm.swappiness"));
+        assert_eq!(
+            child.sysctl.get("kernel.nmi_watchdog"),
+            Some(&"0".to_string())
+        );
+    }
+
+    #[test]
+    fn net_is_an_upstream_alias_for_network() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "networked",
+            "[main]\nsummary=Networked\n\n[net]\ntcp_fastopen=3\ncore_somaxconn=4096\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let profile = catalog.get("networked").unwrap();
+        assert_eq!(profile.network.tcp_fastopen.as_deref(), Some("3"));
+        assert_eq!(profile.network.core_somaxconn.as_deref(), Some("4096"));
     }
 
     #[test]
