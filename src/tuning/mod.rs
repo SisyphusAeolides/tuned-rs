@@ -1,15 +1,15 @@
 pub mod acpi;
+pub mod battery;
 pub mod cpu;
 pub mod disk;
-pub mod modifiers;
-pub mod sysctl;
-pub mod network;
 pub mod gpu;
-pub mod storage;
-pub mod thermal;
-pub mod battery;
 pub mod hermes;
+pub mod modifiers;
+pub mod network;
+pub mod storage;
+pub mod sysctl;
 pub mod sysfs;
+pub mod thermal;
 pub mod vm;
 
 use anyhow::Result;
@@ -37,21 +37,26 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
     )?;
 
     if let Some(platform_profile) = &profile.acpi.platform_profile {
-
-    network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
         acpi::apply_platform_profile(rollback, platform_profile)?;
-
-    network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
     }
 
     network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
+    gpu::apply_gpu_options(rollback, &profile.gpu)?;
+    storage::apply_storage_options(rollback, &profile.storage)?;
+    thermal::apply_thermal_options(rollback, &profile.thermal)?;
+    battery::apply_battery_options(rollback, &profile.battery)?;
+    hermes::apply_hermes_options(rollback, &profile.hermes)?;
 
     Ok(())
 }
 
 fn vm_option_pairs(vm: &VmSettings) -> Vec<(String, String)> {
     let mut options = Vec::new();
-    push_option(&mut options, "transparent_hugepages", &vm.transparent_hugepages);
+    push_option(
+        &mut options,
+        "transparent_hugepages",
+        &vm.transparent_hugepages,
+    );
     push_option(
         &mut options,
         "transparent_hugepage.defrag",
@@ -87,8 +92,16 @@ fn push_option(options: &mut Vec<(String, String)>, key: &str, value: &Option<St
 
 fn network_option_pairs(network: &NetworkSettings) -> Vec<(String, String)> {
     let mut options = Vec::new();
-    push_option(&mut options, "tcp_congestion_control", &network.tcp_congestion_control);
-    push_option(&mut options, "tcp_window_scaling", &network.tcp_window_scaling);
+    push_option(
+        &mut options,
+        "tcp_congestion_control",
+        &network.tcp_congestion_control,
+    );
+    push_option(
+        &mut options,
+        "tcp_window_scaling",
+        &network.tcp_window_scaling,
+    );
     push_option(&mut options, "tcp_timestamps", &network.tcp_timestamps);
     push_option(&mut options, "tcp_sack", &network.tcp_sack);
     push_option(&mut options, "tcp_fastopen", &network.tcp_fastopen);
