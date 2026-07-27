@@ -29,8 +29,7 @@ impl ProfileUnit {
                     .with_context(|| format!("Invalid priority '{value}' in unit '{name}'"))
             })
             .transpose()?;
-        let plugin_type =
-            take_option(&mut options, "type").unwrap_or_else(|| name.to_string());
+        let plugin_type = take_option(&mut options, "type").unwrap_or_else(|| name.to_string());
         let enabled = take_option(&mut options, "enabled")
             .map(|value| tuned_bool(&value))
             .unwrap_or(true);
@@ -118,7 +117,10 @@ impl ProfileUnit {
 
 pub fn merge_units(current: &mut Vec<ProfileUnit>, newer: Vec<ProfileUnit>) {
     for unit in newer {
-        match current.iter().position(|existing| existing.name == unit.name) {
+        match current
+            .iter()
+            .position(|existing| existing.name == unit.name)
+        {
             Some(index) if unit.replace => current[index] = unit,
             Some(index) => current[index].merge_from(unit),
             None => current.push(unit),
@@ -272,11 +274,8 @@ mod tests {
 
     #[test]
     fn replace_discards_the_previous_unit() {
-        let first = ProfileUnit::from_options(
-            "sysctl",
-            options(&[("vm.swappiness", "60")]),
-        )
-        .unwrap();
+        let first =
+            ProfileUnit::from_options("sysctl", options(&[("vm.swappiness", "60")])).unwrap();
         let replacement = ProfileUnit::from_options(
             "sysctl",
             options(&[("replace", "true"), ("kernel.nmi_watchdog", "0")]),
@@ -292,16 +291,10 @@ mod tests {
 
     #[test]
     fn script_units_append_scripts_in_profile_order() {
-        let mut first = ProfileUnit::from_options(
-            "script",
-            options(&[("script", "/one.sh")]),
-        )
-        .unwrap();
-        let second = ProfileUnit::from_options(
-            "script",
-            options(&[("script", "/two.sh")]),
-        )
-        .unwrap();
+        let mut first =
+            ProfileUnit::from_options("script", options(&[("script", "/one.sh")])).unwrap();
+        let second =
+            ProfileUnit::from_options("script", options(&[("script", "/two.sh")])).unwrap();
 
         first.merge_from(second);
         assert_eq!(first.option("script"), Some("/one.sh\n/two.sh"));

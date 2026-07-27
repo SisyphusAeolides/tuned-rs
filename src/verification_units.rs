@@ -192,19 +192,10 @@ fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {
             "min_perf_pct" | "max_perf_pct" => {
                 let targets = ["intel_pstate", "amd_pstate"]
                     .into_iter()
-                    .map(|driver| {
-                        rooted(&format!("/sys/devices/system/cpu/{driver}/{option}"))
-                    })
+                    .map(|driver| rooted(&format!("/sys/devices/system/cpu/{driver}/{option}")))
                     .filter(|path| path.is_file())
                     .collect();
-                check_paths(
-                    report,
-                    "cpu",
-                    option,
-                    expected,
-                    targets,
-                    ValueMode::Exact,
-                );
+                check_paths(report, "cpu", option, expected, targets, ValueMode::Exact);
             }
             "boost" => verify_boost(report, option, expected, &policies),
             "pm_qos_resume_latency_us" => check_paths(
@@ -231,14 +222,7 @@ fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {
                         }
                     }
                 }
-                check_paths(
-                    report,
-                    "cpu",
-                    option,
-                    expected,
-                    targets,
-                    ValueMode::Exact,
-                );
+                check_paths(report, "cpu", option, expected, targets, ValueMode::Exact);
             }
             "force_latency" => issue(
                 report,
@@ -349,8 +333,7 @@ fn verify_vm(unit: &ProfileUnit, report: &mut VerificationReport) {
                 expected,
                 ValueMode::Choice,
             ),
-            "dirty_ratio" | "dirty_background_ratio" | "dirty_bytes"
-            | "dirty_background_bytes" => {
+            "dirty_ratio" | "dirty_background_ratio" | "dirty_bytes" | "dirty_background_bytes" => {
                 let expected = if expected.trim().ends_with('%') {
                     match percentage_memory(expected) {
                         Some(value) => value,
@@ -395,7 +378,10 @@ fn verify_disk(unit: &ProfileUnit, report: &mut VerificationReport) {
                 || name.starts_with("sr"))
         })
         .into_iter()
-        .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .filter_map(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .collect::<Vec<_>>()
     } else {
         unit.devices
@@ -531,14 +517,7 @@ fn verify_audio(unit: &ProfileUnit, report: &mut VerificationReport) {
         );
     }
     for (path, expected, option) in targets {
-        check_file(
-            report,
-            "audio",
-            option,
-            path,
-            &expected,
-            ValueMode::Exact,
-        );
+        check_file(report, "audio", option, path, &expected, ValueMode::Exact);
     }
 }
 
@@ -831,7 +810,11 @@ fn normalize_readahead(raw: &str) -> String {
     let trimmed = raw.trim();
     let (prefix, value) = [">=", "=>", "<=", "=<", ">", "<"]
         .into_iter()
-        .find_map(|prefix| trimmed.strip_prefix(prefix).map(|value| (prefix, value.trim())))
+        .find_map(|prefix| {
+            trimmed
+                .strip_prefix(prefix)
+                .map(|value| (prefix, value.trim()))
+        })
         .unwrap_or(("", trimmed));
     let mut parts = value.split_whitespace();
     let number = parts.next().unwrap_or_default().parse::<i64>().unwrap_or(0);
@@ -893,9 +876,9 @@ fn valid_sysctl_key(key: &str) -> bool {
         && !key.starts_with('.')
         && !key.ends_with('.')
         && !key.contains("..")
-        && key
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+        && key.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
 }
 
 fn parse_bool(raw: &str) -> Option<bool> {

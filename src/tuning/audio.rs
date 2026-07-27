@@ -72,7 +72,10 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
     let mut verified = true;
     for module in AUDIO_MODULES {
         let base = config::resolve_path(&format!("/sys/module/{module}/parameters"));
-        for (leaf, expected) in [("power_save", Some(timeout.as_str())), ("power_save_controller", reset)] {
+        for (leaf, expected) in [
+            ("power_save", Some(timeout.as_str())),
+            ("power_save_controller", reset),
+        ] {
             let path = base.join(leaf);
             if !path.is_file() {
                 continue;

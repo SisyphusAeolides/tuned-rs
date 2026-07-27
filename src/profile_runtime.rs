@@ -80,13 +80,7 @@ pub fn active_units(profile: &Profile) -> Result<Vec<ProfileUnit>> {
         .iter()
         .any(|unit| unit.enabled && unit.uname_regex.is_some());
     let cpuinfo = needs_cpuinfo
-        .then(|| {
-            configured_or_file(
-                "cpuinfo_string",
-                "/proc/cpuinfo",
-                "TUNED_RS_CPUINFO_STRING",
-            )
-        })
+        .then(|| configured_or_file("cpuinfo_string", "/proc/cpuinfo", "TUNED_RS_CPUINFO_STRING"))
         .transpose()?;
     let uname = needs_uname.then(configured_uname).transpose()?;
 
@@ -98,7 +92,10 @@ pub fn active_units(profile: &Profile) -> Result<Vec<ProfileUnit>> {
         let unit = expand_unit(unit.clone(), &variables)?;
         if let Some(pattern) = unit.cpuinfo_regex.as_deref() {
             if !regex_search(pattern, cpuinfo.as_deref().unwrap_or_default())? {
-                debug!("Skipping unit '{}' because cpuinfo does not match", unit.name);
+                debug!(
+                    "Skipping unit '{}' because cpuinfo does not match",
+                    unit.name
+                );
                 continue;
             }
         }
@@ -299,17 +296,17 @@ mod tests {
         std::env::set_var("TUNED_RS_UNAME_STRING", "Linux host 6.15 aarch64");
         let mut profile = Profile::default();
         profile.units = vec![
-            ProfileUnit::from_options(
-                "late",
-                vec![("priority".to_string(), "20".to_string())],
-            )
-            .unwrap(),
+            ProfileUnit::from_options("late", vec![("priority".to_string(), "20".to_string())])
+                .unwrap(),
             ProfileUnit::from_options(
                 "matching",
                 vec![
                     ("priority".to_string(), "10".to_string()),
                     ("uname_regex".to_string(), "aarch64".to_string()),
-                    ("cpuinfo_regex".to_string(), r"CPU part\s*:\s*0x516".to_string()),
+                    (
+                        "cpuinfo_regex".to_string(),
+                        r"CPU part\s*:\s*0x516".to_string(),
+                    ),
                 ],
             )
             .unwrap(),
@@ -322,7 +319,10 @@ mod tests {
 
         let units = active_units(&profile).unwrap();
         assert_eq!(
-            units.iter().map(|unit| unit.name.as_str()).collect::<Vec<_>>(),
+            units
+                .iter()
+                .map(|unit| unit.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["matching", "late"]
         );
         std::env::remove_var("TUNED_RS_CPUINFO_STRING");

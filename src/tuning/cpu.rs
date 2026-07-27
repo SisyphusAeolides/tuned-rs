@@ -389,7 +389,10 @@ fn validate_scalar(payload: &str) -> Result<()> {
     if payload.is_empty() || payload.len() > 128 {
         bail!("Invalid CPU control value");
     }
-    if payload.chars().any(|character| character == '\n' || character == '\0') {
+    if payload
+        .chars()
+        .any(|character| character == '\n' || character == '\0')
+    {
         bail!("CPU control values must not contain control characters");
     }
     Ok(())
@@ -456,7 +459,10 @@ mod tests {
 
     #[test]
     fn reads_bracket_selected_values() {
-        assert_eq!(active_value("powersave [performance] schedutil"), "performance");
+        assert_eq!(
+            active_value("powersave [performance] schedutil"),
+            "performance"
+        );
         assert_eq!(active_value("normal"), "normal");
     }
 

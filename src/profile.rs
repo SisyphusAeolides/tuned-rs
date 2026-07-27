@@ -151,11 +151,7 @@ impl Profile {
                         unit,
                         "pm_qos_resume_latency_us",
                     );
-                    set_from_unit(
-                        &mut cpu.sampling_down_factor,
-                        unit,
-                        "sampling_down_factor",
-                    );
+                    set_from_unit(&mut cpu.sampling_down_factor, unit, "sampling_down_factor");
                 }
                 "vm" => {
                     set_from_unit_aliases(
@@ -197,11 +193,7 @@ impl Profile {
                         unit,
                         "tcp_congestion_control",
                     );
-                    set_from_unit(
-                        &mut network.tcp_window_scaling,
-                        unit,
-                        "tcp_window_scaling",
-                    );
+                    set_from_unit(&mut network.tcp_window_scaling, unit, "tcp_window_scaling");
                     set_from_unit(&mut network.tcp_timestamps, unit, "tcp_timestamps");
                     set_from_unit(&mut network.tcp_sack, unit, "tcp_sack");
                     set_from_unit(&mut network.tcp_fastopen, unit, "tcp_fastopen");
@@ -433,18 +425,11 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         if section.eq_ignore_ascii_case("main") {
             continue;
         }
-        let unit = ProfileUnit::from_options(
-            &section,
-            section_options(&ini, profile_dir, &section),
-        )?;
+        let unit =
+            ProfileUnit::from_options(&section, section_options(&ini, profile_dir, &section))?;
         if unit.plugin_type == "variables" {
             variable_policy = Some((unit.replace, unit.prepend));
-            merge_variables(
-                &mut variables,
-                unit.options,
-                unit.replace,
-                unit.prepend,
-            );
+            merge_variables(&mut variables, unit.options, unit.replace, unit.prepend);
         } else {
             units.push(unit);
         }
@@ -536,18 +521,13 @@ fn section_options(ini: &Ini, profile_dir: &Path, section: &str) -> PluginOption
     options
 }
 
-fn section_entries<'a>(
-    ini: &'a Ini,
-    section: &str,
-) -> Option<&'a HashMap<String, Option<String>>> {
-    ini.get_map_ref()
-        .get(section)
-        .or_else(|| {
-            ini.get_map_ref()
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(section))
-                .map(|(_, entries)| entries)
-        })
+fn section_entries<'a>(ini: &'a Ini, section: &str) -> Option<&'a HashMap<String, Option<String>>> {
+    ini.get_map_ref().get(section).or_else(|| {
+        ini.get_map_ref()
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(section))
+            .map(|(_, entries)| entries)
+    })
 }
 
 fn expand_profile_dir(value: &str, profile_dir: &Path) -> String {
@@ -670,8 +650,14 @@ mod tests {
             profile.sysctl.get("net.core.somaxconn"),
             Some(&">2048".to_string())
         );
-        assert_eq!(option_value(&profile.gpu, "nvidia_power_limit"), Some("250"));
-        assert_eq!(option_value(&profile.gpu, "amd_power_profile"), Some("high"));
+        assert_eq!(
+            option_value(&profile.gpu, "nvidia_power_limit"),
+            Some("250")
+        );
+        assert_eq!(
+            option_value(&profile.gpu, "amd_power_profile"),
+            Some("high")
+        );
         assert_eq!(option_value(&profile.storage, "nvme_apst"), Some("0"));
         assert_eq!(
             option_value(&profile.storage, "io_scheduler"),
@@ -719,7 +705,10 @@ mod tests {
         assert_eq!(profile.vm.dirty_ratio.as_deref(), Some("20"));
         assert_eq!(profile.vm.transparent_hugepages, None);
         assert!(!profile.sysctl.contains_key("kernel.numa_balancing"));
-        assert_eq!(option_value(&profile.variables, "thunderx"), Some("CPU part.*516"));
+        assert_eq!(
+            option_value(&profile.variables, "thunderx"),
+            Some("CPU part.*516")
+        );
     }
 
     #[test]

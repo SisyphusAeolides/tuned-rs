@@ -8,8 +8,8 @@ pub mod hermes;
 pub mod modifiers;
 pub mod modules;
 pub mod network;
-pub mod scsi_host;
 pub mod script;
+pub mod scsi_host;
 pub mod storage;
 pub mod sysctl;
 pub mod sysfs;
@@ -87,9 +87,7 @@ fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             "max_perf_pct" => cpu::apply_max_perf_pct(rollback, value)?,
             "boost" => cpu::apply_boost(rollback, value)?,
             "force_latency" => cpu::apply_force_latency(rollback, value)?,
-            "pm_qos_resume_latency_us" => {
-                cpu::apply_pm_qos_resume_latency_us(rollback, value)?
-            }
+            "pm_qos_resume_latency_us" => cpu::apply_pm_qos_resume_latency_us(rollback, value)?,
             "sampling_down_factor" => cpu::apply_sampling_down_factor(rollback, value)?,
             other => bail!(
                 "Profile unit '{}' uses unsupported CPU option '{other}'",
@@ -297,11 +295,9 @@ mod tests {
         let unknown = ProfileUnit::from_options("mystery", Vec::new()).unwrap();
         assert!(validate_unit_contract(&unknown).is_err());
 
-        let cpu = ProfileUnit::from_options(
-            "cpu",
-            vec![("imaginary".to_string(), "1".to_string())],
-        )
-        .unwrap();
+        let cpu =
+            ProfileUnit::from_options("cpu", vec![("imaginary".to_string(), "1".to_string())])
+                .unwrap();
         assert!(validate_unit_contract(&cpu).is_err());
     }
 

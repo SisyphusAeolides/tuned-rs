@@ -17,11 +17,7 @@ const ALLOWED_POLICIES: &[&str] = &[
     "max_performance",
 ];
 
-pub fn apply_options(
-    rollback: &Rollback,
-    devices: &str,
-    options: &PluginOptions,
-) -> Result<()> {
+pub fn apply_options(rollback: &Rollback, devices: &str, options: &PluginOptions) -> Result<()> {
     let Some(raw_policy) = option_value(options, "alpm") else {
         return Ok(());
     };
@@ -55,10 +51,8 @@ pub fn apply_options(
                 applied = true;
                 break;
             }
-            rollback.record_original(
-                &rollback_key("sysfs", &target.to_string_lossy()),
-                &original,
-            )?;
+            rollback
+                .record_original(&rollback_key("sysfs", &target.to_string_lossy()), &original)?;
             match fs::write(&target, policy) {
                 Ok(()) => {
                     applied = true;
@@ -128,7 +122,10 @@ pub fn verify_options(devices: &str, options: &PluginOptions, ignore_missing: bo
                 verified = false;
             }
             Err(error) => {
-                warn!("Cannot read SCSI ALPM control {}: {error}", target.display());
+                warn!(
+                    "Cannot read SCSI ALPM control {}: {error}",
+                    target.display()
+                );
                 verified = false;
             }
         }
@@ -140,7 +137,11 @@ fn resolve_hosts(devices: &str) -> Result<Vec<PathBuf>> {
     let base = config::resolve_path("/sys/class/scsi_host");
     if devices.trim() != "*" {
         let mut hosts = Vec::new();
-        for device in devices.split([',', ' ']).map(str::trim).filter(|value| !value.is_empty()) {
+        for device in devices
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             validate_host_name(device)?;
             let path = base.join(device);
             if path.exists() {
@@ -154,7 +155,9 @@ fn resolve_hosts(devices: &str) -> Result<Vec<PathBuf>> {
     let entries = match fs::read_dir(&base) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error).with_context(|| format!("Failed to read {}", base.display())),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to read {}", base.display()))
+        }
     };
     let mut hosts = entries
         .flatten()

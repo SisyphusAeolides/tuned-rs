@@ -67,7 +67,10 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
                     verified = false;
                 }
                 Err(error) => {
-                    warn!("Cannot read Radeon power policy for {}: {error}", device.display());
+                    warn!(
+                        "Cannot read Radeon power policy for {}: {error}",
+                        device.display()
+                    );
                     verified = false;
                 }
             }
@@ -102,7 +105,10 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
                     verified = false;
                 }
                 Err(error) => {
-                    warn!("Cannot read panel power control {}: {error}", target.display());
+                    warn!(
+                        "Cannot read panel power control {}: {error}",
+                        target.display()
+                    );
                     verified = false;
                 }
             }
@@ -156,11 +162,7 @@ fn apply_radeon_powersave(rollback: &Rollback, devices: &[PathBuf], raw: &str) -
     Ok(())
 }
 
-fn attempt_radeon_candidate(
-    rollback: &Rollback,
-    device: &Path,
-    candidate: &str,
-) -> Result<()> {
+fn attempt_radeon_candidate(rollback: &Rollback, device: &Path, candidate: &str) -> Result<()> {
     let method = device.join("device/power_method");
     let method_original = read_trimmed(&method)?;
 
@@ -224,11 +226,7 @@ fn restore_candidate_state(
     }
 }
 
-fn apply_panel_power_savings(
-    rollback: &Rollback,
-    devices: &[PathBuf],
-    raw: &str,
-) -> Result<()> {
+fn apply_panel_power_savings(rollback: &Rollback, devices: &[PathBuf], raw: &str) -> Result<()> {
     let level = panel_level(raw)?;
     let mut updated = 0usize;
     for device in devices {
@@ -251,7 +249,9 @@ fn drm_devices() -> Result<Vec<PathBuf>> {
     let entries = match fs::read_dir(&base) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error).with_context(|| format!("Failed to read {}", base.display())),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to read {}", base.display()))
+        }
     };
     let mut devices = BTreeSet::new();
     for entry in entries.flatten() {
@@ -265,26 +265,24 @@ fn drm_devices() -> Result<Vec<PathBuf>> {
 }
 
 fn radeon_candidates(raw: &str) -> Vec<String> {
-    raw.split(|character: char| {
-        character.is_whitespace() || matches!(character, ',' | ';' | ':')
-    })
-    .map(str::trim)
-    .filter(|candidate| {
-        matches!(
-            *candidate,
-            "default"
-                | "auto"
-                | "low"
-                | "mid"
-                | "high"
-                | "dynpm"
-                | "dpm-battery"
-                | "dpm-balanced"
-                | "dpm-performance"
-        )
-    })
-    .map(str::to_string)
-    .collect()
+    raw.split(|character: char| character.is_whitespace() || matches!(character, ',' | ';' | ':'))
+        .map(str::trim)
+        .filter(|candidate| {
+            matches!(
+                *candidate,
+                "default"
+                    | "auto"
+                    | "low"
+                    | "mid"
+                    | "high"
+                    | "dynpm"
+                    | "dpm-battery"
+                    | "dpm-balanced"
+                    | "dpm-performance"
+            )
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 fn panel_level(raw: &str) -> Result<u8> {

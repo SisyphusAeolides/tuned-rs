@@ -12,10 +12,7 @@ use crate::rollback::{rollback_key, Rollback};
 pub fn apply_scripts(rollback: &Rollback, raw: &str) -> Result<()> {
     for script in script_paths(raw) {
         let script = validate_script_path(&script)?;
-        rollback.record_original(
-            &rollback_key("script", &script.to_string_lossy()),
-            "stop",
-        )?;
+        rollback.record_original(&rollback_key("script", &script.to_string_lossy()), "stop")?;
         run_script(&script, &["start"])?;
     }
     Ok(())
@@ -60,7 +57,10 @@ fn run_script(path: &Path, arguments: &[&str]) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Script has no parent directory: {}", path.display()))?;
-    info!("Calling profile script '{}' with {arguments:?}", path.display());
+    info!(
+        "Calling profile script '{}' with {arguments:?}",
+        path.display()
+    );
     let output = Command::new(path)
         .args(arguments)
         .current_dir(parent)
@@ -101,7 +101,10 @@ fn validate_script_path(path: &Path) -> Result<PathBuf> {
     let metadata = fs::metadata(&canonical)
         .with_context(|| format!("Cannot inspect profile script {}", canonical.display()))?;
     if !metadata.is_file() {
-        bail!("Profile script is not a regular file: {}", canonical.display());
+        bail!(
+            "Profile script is not a regular file: {}",
+            canonical.display()
+        );
     }
     if metadata.permissions().mode() & 0o111 == 0 {
         bail!("Profile script is not executable: {}", canonical.display());

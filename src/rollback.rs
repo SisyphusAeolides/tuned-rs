@@ -91,8 +91,7 @@ impl Rollback {
                 contents: Vec::new(),
             },
             Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("Failed to snapshot {}", path.display()))
+                return Err(error).with_context(|| format!("Failed to snapshot {}", path.display()))
             }
         };
         let encoded = serde_json::to_string(&snapshot)?;
@@ -246,7 +245,10 @@ fn validate_managed_file(path: &Path) -> Result<()> {
     if allowed.iter().any(|candidate| candidate == path) {
         Ok(())
     } else {
-        bail!("Refusing managed-file rollback outside the TuneD allowlist: {}", path.display())
+        bail!(
+            "Refusing managed-file rollback outside the TuneD allowlist: {}",
+            path.display()
+        )
     }
 }
 
