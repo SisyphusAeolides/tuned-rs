@@ -12,6 +12,7 @@ use crate::rollback::Rollback;
 use crate::socket_signals::SignalRegistry;
 use crate::tuning;
 use crate::verification;
+use crate::verification_units;
 
 pub struct Daemon {
     catalog: Mutex<ProfileCatalog>,
@@ -146,7 +147,11 @@ impl Daemon {
             return false;
         };
 
-        match run_blocking(move || Ok(verification::verify_profile(&profile))) {
+        match run_blocking(move || {
+            let mut report = verification::verify_profile(&profile);
+            verification_units::augment(&profile, &mut report);
+            Ok(report)
+        }) {
             Ok(report) => {
                 report.log();
                 report.passes(ignore_missing)
