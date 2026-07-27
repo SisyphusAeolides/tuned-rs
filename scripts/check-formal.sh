@@ -13,35 +13,51 @@ build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 missing=0
 
-if command -v gfortran >/dev/null 2>&1; then
+run_fortran_model() {
+    source=$1
+    output=$2
+    description=$3
     gfortran \
         -std=f2008 \
         -ffree-line-length-none \
         -Wall \
         -Wextra \
         -Werror \
+        "$source" \
+        -o "$build_dir/$output"
+    "$build_dir/$output"
+    echo "$description: passed"
+}
+
+if command -v gfortran >/dev/null 2>&1; then
+    run_fortran_model \
         formal/fortran/tuned_rollback.f90 \
-        -o "$build_dir/tuned-rollback-check"
-    "$build_dir/tuned-rollback-check"
-    echo "Fortran rollback model: passed"
+        tuned-rollback-check \
+        "Fortran rollback model"
+    run_fortran_model \
+        formal/fortran/tuned_instances.f90 \
+        tuned-instances-check \
+        "Fortran instance ownership model"
 else
-    echo "Fortran rollback model: skipped (gfortran not found)" >&2
+    echo "Fortran models: skipped (gfortran not found)" >&2
     missing=1
 fi
 
 if command -v idris2 >/dev/null 2>&1; then
     idris2 --check formal/idris2/TunedProfile.idr
-    echo "Idris profile model: passed"
+    idris2 --check formal/idris2/TunedInstances.idr
+    echo "Idris profile and instance models: passed"
 else
-    echo "Idris profile model: skipped (idris2 not found)" >&2
+    echo "Idris models: skipped (idris2 not found)" >&2
     missing=1
 fi
 
 if command -v agda >/dev/null 2>&1; then
     agda --safe -i formal/agda formal/agda/TunedRollback.agda
-    echo "Agda rollback proof: passed"
+    agda --safe -i formal/agda formal/agda/TunedInstances.agda
+    echo "Agda rollback and instance proofs: passed"
 else
-    echo "Agda rollback proof: skipped (agda not found)" >&2
+    echo "Agda proofs: skipped (agda not found)" >&2
     missing=1
 fi
 
