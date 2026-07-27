@@ -187,6 +187,17 @@ impl ProfileCatalog {
         self.profiles.get(name)
     }
 
+    pub fn resolve(&self, selection: &str) -> Option<Profile> {
+        let names = engine::profile_selection(selection)?;
+        let normalized = names.join(" ");
+        let mut profile = Profile::default();
+        for name in names {
+            profile.merge_from(self.profiles.get(name)?.clone());
+        }
+        profile.name = normalized;
+        Some(profile)
+    }
+
     pub fn profile_info(&self, name: &str) -> (bool, String, String, String) {
         match self.profiles.get(name) {
             Some(profile) => (
@@ -461,17 +472,15 @@ pub fn read_active_profile() -> Result<Option<String>> {
     if name.is_empty() {
         return Ok(None);
     }
-    if !engine::validate_profile_name(name) {
-        bail!("Invalid active profile in {}", path.display());
-    }
+    let normalized = engine::normalize_profile_selection(name)
+        .with_context(|| format!("Invalid active profile in {}", path.display()))?;
 
-    Ok(Some(name.to_string()))
+    Ok(Some(normalized))
 }
 
 pub fn save_active_profile(name: &str) -> Result<()> {
-    if !engine::validate_profile_name(name) {
-        bail!("Invalid profile name '{name}'");
-    }
+    let normalized = engine::normalize_profile_selection(name)
+        .with_context(|| format!("Invalid profile name '{name}'"))?;
 
     let path = config::resolve_path(config::ACTIVE_PROFILE_FILE);
     if let Some(parent) = path.parent() {
@@ -479,7 +488,7 @@ pub fn save_active_profile(name: &str) -> Result<()> {
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
 
-    fs::write(&path, format!("{name}\n"))
+    fs::write(&path, format!("{normalized}\n"))
         .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(())
 }
@@ -610,6 +619,33 @@ mod tests {
                 "Inherited description".to_string()
             )
         );
+    }
+
+    #[test]
+    fn stacked_profiles_merge_in_requested_order() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "first",
+            "[main]\nsummary=First\n\n[cpu]\ngovernor=powersave\n\n[sysctl]\nvm.swappiness=20\n",
+        );
+        write_profile(
+            &profiles,
+            "second",
+            "[main]\nsummary=Second\n\n[cpu]\nenergy_performance_preference=performance\n\n[sysctl]\nvm.swappiness=5\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let stacked = catalog.resolve("first   second").unwrap();
+        assert_eq!(stacked.name, "first second");
+        assert_eq!(stacked.summary, "Second");
+        assert_eq!(stacked.cpu.governor.as_deref(), Some("powersave"));
+        assert_eq!(
+            stacked.cpu.energy_performance_preference.as_deref(),
+            Some("performance")
+        );
+        assert_eq!(stacked.sysctl.get("vm.swappiness"), Some(&"5".to_string()));
     }
 
     #[test]
