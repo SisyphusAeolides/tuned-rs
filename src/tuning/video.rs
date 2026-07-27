@@ -30,7 +30,6 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
             return false;
         }
     };
-    let mut found = false;
     let mut verified = true;
 
     if let Some(raw) = option_value(options, "radeon_powersave") {
@@ -38,6 +37,7 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
         if expected.is_empty() {
             return false;
         }
+        let mut found = false;
         for device in &devices {
             let method = device.join("device/power_method");
             if !method.is_file() {
@@ -45,9 +45,13 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
             }
             found = true;
             let actual = match read_trimmed(&method) {
-                Ok(method) if method == "profile" => read_trimmed(&device.join("device/power_profile")),
-                Ok(method) if method == "dpm" => read_trimmed(&device.join("device/power_dpm_state"))
-                    .map(|state| format!("dpm-{state}")),
+                Ok(method) if method == "profile" => {
+                    read_trimmed(&device.join("device/power_profile"))
+                }
+                Ok(method) if method == "dpm" => {
+                    read_trimmed(&device.join("device/power_dpm_state"))
+                        .map(|state| format!("dpm-{state}"))
+                }
                 Ok(method) => Ok(method),
                 Err(error) => Err(error),
             };
@@ -68,6 +72,10 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
                 }
             }
         }
+        if !found && !ignore_missing {
+            warn!("No Radeon power-method controls were found");
+            verified = false;
+        }
     }
 
     if let Some(raw) = option_value(options, "panel_power_savings") {
@@ -75,6 +83,7 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
             Ok(level) => level.to_string(),
             Err(_) => return false,
         };
+        let mut found = false;
         for device in &devices {
             let target = device.join("amdgpu/panel_power_savings");
             if !target.is_file() {
@@ -98,9 +107,13 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
                 }
             }
         }
+        if !found && !ignore_missing {
+            warn!("No amdgpu panel_power_savings controls were found");
+            verified = false;
+        }
     }
 
-    verified && (found || ignore_missing || options.is_empty())
+    verified
 }
 
 fn apply_radeon_powersave(rollback: &Rollback, devices: &[PathBuf], raw: &str) -> Result<()> {
@@ -118,23 +131,7 @@ fn apply_radeon_powersave(rollback: &Rollback, devices: &[PathBuf], raw: &str) -
         supported += 1;
         let mut applied = false;
         for candidate in &candidates {
-            let result = match candidate.as_str() {
-                "default" | "auto" | "low" | "mid" | "high" => {
-                    write_node(rollback, &method, "profile")?;
-                    write_node(rollback, &device.join("device/power_profile"), candidate)
-                }
-                "dynpm" => write_node(rollback, &method, "dynpm"),
-                "dpm-battery" | "dpm-balanced" | "dpm-performance" => {
-                    write_node(rollback, &method, "dpm")?;
-                    write_node(
-                        rollback,
-                        &device.join("device/power_dpm_state"),
-                        candidate.trim_start_matches("dpm-"),
-                    )
-                }
-                _ => continue,
-            };
-            match result {
+            match attempt_radeon_candidate(rollback, device, candidate) {
                 Ok(()) => {
                     applied = true;
                     break;
@@ -157,6 +154,74 @@ fn apply_radeon_powersave(rollback: &Rollback, devices: &[PathBuf], raw: &str) -
         debug!("No Radeon power-method controls were found");
     }
     Ok(())
+}
+
+fn attempt_radeon_candidate(
+    rollback: &Rollback,
+    device: &Path,
+    candidate: &str,
+) -> Result<()> {
+    let method = device.join("device/power_method");
+    let method_original = read_trimmed(&method)?;
+
+    let (method_value, secondary, secondary_value) = match candidate {
+        "default" | "auto" | "low" | "mid" | "high" => (
+            "profile",
+            Some(device.join("device/power_profile")),
+            Some(candidate),
+        ),
+        "dynpm" => ("dynpm", None, None),
+        "dpm-battery" | "dpm-balanced" | "dpm-performance" => (
+            "dpm",
+            Some(device.join("device/power_dpm_state")),
+            Some(candidate.trim_start_matches("dpm-")),
+        ),
+        _ => bail!("Unsupported Radeon power policy '{candidate}'"),
+    };
+
+    let secondary_original = match &secondary {
+        Some(path) => Some(read_trimmed(path)?),
+        None => None,
+    };
+
+    if let Err(error) = write_node(rollback, &method, method_value) {
+        return Err(error);
+    }
+
+    if let (Some(path), Some(value)) = (&secondary, secondary_value) {
+        if let Err(error) = write_node(rollback, path, value) {
+            restore_candidate_state(
+                &method,
+                &method_original,
+                secondary.as_deref(),
+                secondary_original.as_deref(),
+            );
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn restore_candidate_state(
+    method: &Path,
+    method_original: &str,
+    secondary: Option<&Path>,
+    secondary_original: Option<&str>,
+) {
+    if let (Some(path), Some(original)) = (secondary, secondary_original) {
+        if let Err(error) = fs::write(path, original) {
+            warn!(
+                "Failed to restore temporary Radeon fallback state at {}: {error}",
+                path.display()
+            );
+        }
+    }
+    if let Err(error) = fs::write(method, method_original) {
+        warn!(
+            "Failed to restore temporary Radeon method state at {}: {error}",
+            method.display()
+        );
+    }
 }
 
 fn apply_panel_power_savings(
