@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 use zbus::names::BusName;
 use zbus::{Connection, MatchRule, MessageStream};
@@ -90,9 +90,7 @@ impl PpdCore {
         }
 
         let default_profile = self.config.read().await.default_profile.clone();
-        let base = read_base_profile()
-            .await
-            .unwrap_or(default_profile);
+        let base = read_base_profile().await.unwrap_or(default_profile);
         self.switch_profile(&base).await?;
         let _ = self.set_base_profile(&base).await;
         Ok(())
@@ -139,11 +137,7 @@ impl PpdCore {
     pub async fn set_active_profile(&self, profile: &str) -> Result<()> {
         let config = self.config.read().await;
         let on_battery = *self.on_battery.read().await;
-        if config
-            .ppd_to_tuned
-            .get(profile, on_battery)
-            .is_err()
-        {
+        if config.ppd_to_tuned.get(profile, on_battery).is_err() {
             anyhow::bail!("Invalid profile '{profile}'");
         }
         drop(config);
@@ -267,10 +261,7 @@ impl PpdCore {
 
     async fn effective_hold_profile(&self) -> String {
         let holds = self.holds.lock().await;
-        if holds
-            .values()
-            .any(|hold| hold.profile == POWER_SAVER)
-        {
+        if holds.values().any(|hold| hold.profile == POWER_SAVER) {
             POWER_SAVER.to_string()
         } else {
             PERFORMANCE.to_string()
@@ -478,8 +469,8 @@ async fn read_base_profile() -> Option<String> {
 }
 
 fn read_trimmed(path: &str) -> Result<String> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read {path}"))?;
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("Failed to read {path}"))?;
     Ok(content.trim().to_string())
 }
 
@@ -568,8 +559,11 @@ async fn spawn_battery_monitor(core: Arc<PpdCore>) -> Result<()> {
     while let Some(message) = stream.next().await {
         let message = message?;
         let body = message.body();
-        let args: (String, HashMap<String, zbus::zvariant::OwnedValue>, Vec<String>) =
-            body.deserialize()?;
+        let args: (
+            String,
+            HashMap<String, zbus::zvariant::OwnedValue>,
+            Vec<String>,
+        ) = body.deserialize()?;
         if args.0 == config::UPOWER_POWER_BUS {
             if let Some(value) = args.1.get("OnBattery") {
                 if let Ok(on_battery) = bool::try_from(value) {

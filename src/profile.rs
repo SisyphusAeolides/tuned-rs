@@ -103,10 +103,7 @@ impl Profile {
         merge_optional(&mut self.disk.devices, newer.disk.devices);
         merge_optional(&mut self.disk.elevator, newer.disk.elevator);
         merge_optional(&mut self.disk.readahead, newer.disk.readahead);
-        merge_optional(
-            &mut self.acpi.platform_profile,
-            newer.acpi.platform_profile,
-        );
+        merge_optional(&mut self.acpi.platform_profile, newer.acpi.platform_profile);
 
         merge_optional(
             &mut self.network.tcp_congestion_control,
@@ -121,10 +118,7 @@ impl Profile {
             newer.network.tcp_timestamps,
         );
         merge_optional(&mut self.network.tcp_sack, newer.network.tcp_sack);
-        merge_optional(
-            &mut self.network.tcp_fastopen,
-            newer.network.tcp_fastopen,
-        );
+        merge_optional(&mut self.network.tcp_fastopen, newer.network.tcp_fastopen);
 
         self.sysctl.extend(newer.sysctl);
         merge_plugin_options(&mut self.gpu, newer.gpu);
@@ -305,8 +299,7 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
     let profile_dir = path.parent().unwrap_or_else(|| Path::new("."));
 
     let summary = section_value(&ini, profile_dir, "main", "summary").unwrap_or_default();
-    let description =
-        section_value(&ini, profile_dir, "main", "description").unwrap_or_default();
+    let description = section_value(&ini, profile_dir, "main", "description").unwrap_or_default();
 
     let cpu = CpuSettings {
         governor: section_value(&ini, profile_dir, "cpu", "governor"),
@@ -319,13 +312,8 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
     };
 
     let vm = VmSettings {
-        transparent_hugepages: section_value(
-            &ini,
-            profile_dir,
-            "vm",
-            "transparent_hugepages",
-        )
-        .or_else(|| section_value(&ini, profile_dir, "vm", "transparent_hugepage")),
+        transparent_hugepages: section_value(&ini, profile_dir, "vm", "transparent_hugepages")
+            .or_else(|| section_value(&ini, profile_dir, "vm", "transparent_hugepage")),
         transparent_hugepage_defrag: section_value(
             &ini,
             profile_dir,
@@ -334,18 +322,8 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         ),
         dirty_bytes: section_value(&ini, profile_dir, "vm", "dirty_bytes"),
         dirty_ratio: section_value(&ini, profile_dir, "vm", "dirty_ratio"),
-        dirty_background_bytes: section_value(
-            &ini,
-            profile_dir,
-            "vm",
-            "dirty_background_bytes",
-        ),
-        dirty_background_ratio: section_value(
-            &ini,
-            profile_dir,
-            "vm",
-            "dirty_background_ratio",
-        ),
+        dirty_background_bytes: section_value(&ini, profile_dir, "vm", "dirty_background_bytes"),
+        dirty_background_ratio: section_value(&ini, profile_dir, "vm", "dirty_background_ratio"),
     };
 
     let disk = DiskSettings {
@@ -365,12 +343,7 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
             "network",
             "tcp_congestion_control",
         ),
-        tcp_window_scaling: section_value(
-            &ini,
-            profile_dir,
-            "network",
-            "tcp_window_scaling",
-        ),
+        tcp_window_scaling: section_value(&ini, profile_dir, "network", "tcp_window_scaling"),
         tcp_timestamps: section_value(&ini, profile_dir, "network", "tcp_timestamps"),
         tcp_sack: section_value(&ini, profile_dir, "network", "tcp_sack"),
         tcp_fastopen: section_value(&ini, profile_dir, "network", "tcp_fastopen"),
@@ -466,8 +439,8 @@ pub fn read_active_profile() -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("Failed to read {}", path.display()))?;
     let name = content.trim();
     if name.is_empty() {
         return Ok(None);
@@ -548,8 +521,14 @@ mod tests {
             profile.sysctl.get("net.core.somaxconn"),
             Some(&">2048".to_string())
         );
-        assert_eq!(option_value(&profile.gpu, "nvidia_power_limit"), Some("250"));
-        assert_eq!(option_value(&profile.gpu, "amd_power_profile"), Some("high"));
+        assert_eq!(
+            option_value(&profile.gpu, "nvidia_power_limit"),
+            Some("250")
+        );
+        assert_eq!(
+            option_value(&profile.gpu, "amd_power_profile"),
+            Some("high")
+        );
         assert_eq!(option_value(&profile.storage, "nvme_apst"), Some("0"));
         assert_eq!(
             option_value(&profile.storage, "io_scheduler"),

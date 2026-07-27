@@ -73,8 +73,9 @@ impl PpdConfig {
         }
 
         let mut ini = Ini::new();
-        ini.load(path)
-            .map_err(|error| anyhow::anyhow!("Error parsing configuration file '{path}': {error}"))?;
+        ini.load(path).map_err(|error| {
+            anyhow::anyhow!("Error parsing configuration file '{path}': {error}")
+        })?;
 
         let profile_dict_ac = section_map(&ini, "profiles")
             .ok_or_else(|| anyhow::anyhow!("Missing profiles section in '{path}'"))?;

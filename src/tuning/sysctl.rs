@@ -27,7 +27,10 @@ pub fn sysctl_path(key: &str) -> Result<PathBuf> {
         bail!("Refusing to set deprecated sysctl option {key}");
     }
 
-    Ok(config::resolve_path(&format!("/proc/sys/{}", key.replace('.', "/"))))
+    Ok(config::resolve_path(&format!(
+        "/proc/sys/{}",
+        key.replace('.', "/")
+    )))
 }
 
 pub fn read(key: &str) -> Result<String> {
@@ -38,7 +41,8 @@ pub fn write_raw(key: &str, value: &str) -> Result<()> {
     validate_value(value)?;
     let path = sysctl_path(key)?;
     info!("Writing '{value}' to {}", path.display());
-    std::fs::write(&path, value).with_context(|| format!("Failed to write to {}", path.display()))?;
+    std::fs::write(&path, value)
+        .with_context(|| format!("Failed to write to {}", path.display()))?;
     Ok(())
 }
 
@@ -75,7 +79,7 @@ fn validate_value(value: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::rollback::Rollback;
-    use crate::tuning::modifiers::{parse_assignment, AssignmentOp, resolve_numeric_assignment};
+    use crate::tuning::modifiers::{parse_assignment, resolve_numeric_assignment, AssignmentOp};
     use tempfile::TempDir;
 
     #[test]

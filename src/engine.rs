@@ -2,9 +2,9 @@ pub const MAX_TUNED_ARGUMENT_LENGTH: usize = 4096;
 
 pub fn validate_profile_name(name: &str) -> bool {
     !name.is_empty()
-        && name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.'))
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
 }
 
 pub fn profile_selection(selection: &str) -> Option<Vec<&str>> {
@@ -89,6 +89,8 @@ mod tests {
         assert!(validate_tuned_argument("/run/tuned/events.sock"));
         assert!(validate_tuned_argument("devices=eth*;priority<10"));
         assert!(!validate_tuned_argument("line\nbreak"));
-        assert!(!validate_tuned_argument(&"x".repeat(MAX_TUNED_ARGUMENT_LENGTH + 1)));
+        assert!(!validate_tuned_argument(
+            &"x".repeat(MAX_TUNED_ARGUMENT_LENGTH + 1)
+        ));
     }
 }

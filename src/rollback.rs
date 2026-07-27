@@ -223,16 +223,16 @@ mod tests {
             })
             .unwrap_err();
 
-        assert_eq!(
-            restored,
-            vec!["sysfs:third", "sysfs:second", "sysfs:first"]
-        );
+        assert_eq!(restored, vec!["sysfs:third", "sysfs:second", "sysfs:first"]);
         assert!(error.to_string().contains("sysfs:second"));
 
         let persisted: RollbackFile =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(persisted.entries.len(), 1);
-        assert_eq!(persisted.entries.get("sysfs:second"), Some(&"2".to_string()));
+        assert_eq!(
+            persisted.entries.get("sysfs:second"),
+            Some(&"2".to_string())
+        );
         assert_eq!(persisted.order, vec!["sysfs:second"]);
 
         rollback.restore_with(|_, _| Ok(())).unwrap();
@@ -243,11 +243,7 @@ mod tests {
     fn loads_legacy_unordered_rollback_files() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("rollback.json");
-        fs::write(
-            &path,
-            r#"{"entries":{"sysfs:b":"2","sysfs:a":"1"}}"#,
-        )
-        .unwrap();
+        fs::write(&path, r#"{"entries":{"sysfs:b":"2","sysfs:a":"1"}}"#).unwrap();
 
         let rollback = Rollback::load_from_path(path).unwrap();
         let state = rollback.state.lock().unwrap();

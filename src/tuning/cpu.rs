@@ -46,7 +46,8 @@ pub fn apply_governor(rollback: &Rollback, raw: &str) -> Result<()> {
 }
 
 pub fn apply_epp(rollback: &Rollback, raw: &str) -> Result<()> {
-    let available = read_available_values(CPUFREQ_BASE, "energy_performance_available_preferences")?;
+    let available =
+        read_available_values(CPUFREQ_BASE, "energy_performance_available_preferences")?;
     if available.is_empty() {
         debug!("CPU energy performance preference is not supported on this platform");
         return Ok(());
@@ -64,7 +65,11 @@ fn resolve_choice_for_available(
     is_valid: impl Fn(&str) -> bool,
 ) -> Option<String> {
     let available: HashSet<&str> = available.split_whitespace().collect();
-    for candidate in raw.split('|').map(str::trim).filter(|part| !part.is_empty()) {
+    for candidate in raw
+        .split('|')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
         if is_valid(candidate) && available.contains(candidate) {
             return Some(candidate.to_string());
         }

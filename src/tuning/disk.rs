@@ -5,7 +5,9 @@ use anyhow::{bail, Context, Result};
 use tracing::{info, warn};
 
 use crate::rollback::{rollback_key, Rollback};
-use crate::tuning::modifiers::{parse_assignment, read_trimmed, resolve_numeric_assignment, resolve_choice};
+use crate::tuning::modifiers::{
+    parse_assignment, read_trimmed, resolve_choice, resolve_numeric_assignment,
+};
 use crate::tuning::sysfs::{allowed_sysfs_path, write_raw as write_sysfs_raw};
 
 pub fn apply_options(
@@ -52,10 +54,7 @@ fn apply_elevator(rollback: &Rollback, device: &str, raw_value: &str) -> Result<
     let current = read_trimmed(&path)?;
     let resolved = resolve_choice(raw_value, |candidate| current.contains(candidate))
         .unwrap_or_else(|| raw_value.trim().to_string());
-    rollback.record_original(
-        &rollback_key("sysfs", &path.to_string_lossy()),
-        &current,
-    )?;
+    rollback.record_original(&rollback_key("sysfs", &path.to_string_lossy()), &current)?;
     write_sysfs_raw(&path, &resolved)
 }
 
@@ -77,15 +76,13 @@ fn apply_readahead(rollback: &Rollback, device: &str, raw_value: &str) -> Result
             target: target.to_string(),
         },
         &current,
-    )? else {
+    )?
+    else {
         info!("Keeping readahead for '{device}' at '{current}'");
         return Ok(());
     };
 
-    rollback.record_original(
-        &rollback_key("sysfs", &path.to_string_lossy()),
-        &current,
-    )?;
+    rollback.record_original(&rollback_key("sysfs", &path.to_string_lossy()), &current)?;
     write_sysfs_raw(&path, &resolved)
 }
 
@@ -143,5 +140,8 @@ fn device_option_path(device: &str, option: &str) -> Result<PathBuf> {
     {
         bail!("Invalid block device name '{device}'");
     }
-    Ok(PathBuf::from("/sys/block").join(device).join("queue").join(option))
+    Ok(PathBuf::from("/sys/block")
+        .join(device)
+        .join("queue")
+        .join(option))
 }

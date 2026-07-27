@@ -43,7 +43,10 @@ pub fn parse_assignment(raw: &str) -> Assignment {
     }
 }
 
-pub fn resolve_numeric_assignment(assignment: &Assignment, current: &str) -> Result<Option<String>> {
+pub fn resolve_numeric_assignment(
+    assignment: &Assignment,
+    current: &str,
+) -> Result<Option<String>> {
     let current = current.trim();
     if assignment.op == AssignmentOp::Set {
         return Ok(Some(assignment.target.clone()));
@@ -72,7 +75,11 @@ pub fn resolve_numeric_assignment(assignment: &Assignment, current: &str) -> Res
 }
 
 pub fn resolve_choice(raw: &str, is_valid: impl Fn(&str) -> bool) -> Option<String> {
-    for candidate in raw.split('|').map(str::trim).filter(|part| !part.is_empty()) {
+    for candidate in raw
+        .split('|')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
         if is_valid(candidate) {
             return Some(candidate.to_string());
         }
@@ -123,9 +130,6 @@ mod tests {
             resolve_numeric_assignment(&assignment, "120").unwrap(),
             Some("100".to_string())
         );
-        assert_eq!(
-            resolve_numeric_assignment(&assignment, "80").unwrap(),
-            None
-        );
+        assert_eq!(resolve_numeric_assignment(&assignment, "80").unwrap(), None);
     }
 }

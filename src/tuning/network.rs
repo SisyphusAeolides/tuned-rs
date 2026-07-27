@@ -1,9 +1,9 @@
-use std::fs;
-use std::path::Path;
-use anyhow::{Context, Result};
-use tracing::{debug, error, info, warn};
 use crate::rollback::{rollback_key, Rollback};
 use crate::tuning::modifiers::read_trimmed;
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::Path;
+use tracing::{debug, error, info, warn};
 
 const PROC_NET_BASE: &str = "/proc/sys/net";
 
@@ -41,14 +41,24 @@ fn apply_tcp_option(rollback: &Rollback, key: &str, value: &str) -> Result<bool>
         "core_wmem_max" => format!("{}/core/wmem_max", PROC_NET_BASE),
         "core_netdev_max_backlog" => format!("{}/core/netdev_max_backlog", PROC_NET_BASE),
         "core_somaxconn" => format!("{}/core/somaxconn", PROC_NET_BASE),
-        _ => { warn!("Unknown TCP/IP option: {key}"); return Ok(false); }
+        _ => {
+            warn!("Unknown TCP/IP option: {key}");
+            return Ok(false);
+        }
     };
     let path = Path::new(&proc_path);
-    if !path.exists() { debug!("TCP/IP option {key} not available"); return Ok(false); }
+    if !path.exists() {
+        debug!("TCP/IP option {key} not available");
+        return Ok(false);
+    }
     let original = read_trimmed(path)?;
-    if original == value { debug!("TCP/IP option {key} already set"); return Ok(false); }
+    if original == value {
+        debug!("TCP/IP option {key} already set");
+        return Ok(false);
+    }
     rollback.record_original(&rollback_key("proc", &proc_path), &original)?;
-    fs::write(path, format!("{}\n", value)).with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::write(path, format!("{}\n", value))
+        .with_context(|| format!("Failed to write {}", path.display()))?;
     debug!("Set TCP/IP option {key} to {value}");
     Ok(true)
 }

@@ -21,9 +21,9 @@ pub fn apply_platform_profile(rollback: &Rollback, raw: &str) -> Result<()> {
         .split_whitespace()
         .map(str::to_string)
         .collect();
-    let Some(profile) =
-        resolve_choice(raw, |candidate| available.iter().any(|item| item == candidate))
-    else {
+    let Some(profile) = resolve_choice(raw, |candidate| {
+        available.iter().any(|item| item == candidate)
+    }) else {
         warn!("Requested platform_profile '{raw}' unavailable");
         return Ok(());
     };

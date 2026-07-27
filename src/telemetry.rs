@@ -1,8 +1,8 @@
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMetrics {
@@ -39,7 +39,7 @@ impl TelemetryCollector {
 
     pub fn collect(&mut self) -> Result<PerformanceMetrics> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        
+
         let metrics = PerformanceMetrics {
             timestamp,
             cpu_usage: self.get_cpu_usage()?,
@@ -65,34 +65,54 @@ impl TelemetryCollector {
         let stat = fs::read_to_string("/proc/stat")?;
         let line = stat.lines().next().unwrap_or("");
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 8 { return Ok(0.0); }
-        
+        if parts.len() < 8 {
+            return Ok(0.0);
+        }
+
         let user: u64 = parts[1].parse().unwrap_or(0);
         let nice: u64 = parts[2].parse().unwrap_or(0);
         let system: u64 = parts[3].parse().unwrap_or(0);
         let idle: u64 = parts[4].parse().unwrap_or(0);
         let iowait: u64 = parts[5].parse().unwrap_or(0);
-        
+
         let total = user + nice + system + idle + iowait;
         let active = user + nice + system;
-        
-        Ok(if total > 0 { (active as f64 / total as f64) * 100.0 } else { 0.0 })
+
+        Ok(if total > 0 {
+            (active as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        })
     }
 
     fn get_memory_usage(&self) -> Result<f64> {
         let meminfo = fs::read_to_string("/proc/meminfo")?;
         let mut total = 0u64;
         let mut available = 0u64;
-        
+
         for line in meminfo.lines() {
             if line.starts_with("MemTotal:") {
-                total = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                total = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             } else if line.starts_with("MemAvailable:") {
-                available = line.split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
+                available = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
             }
         }
-        
-        Ok(if total > 0 { ((total - available) as f64 / total as f64) * 100.0 } else { 0.0 })
+
+        Ok(if total > 0 {
+            ((total - available) as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        })
     }
 
     fn get_io_read(&mut self) -> Result<u64> {
@@ -155,7 +175,9 @@ impl TelemetryCollector {
         if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if !name.starts_with("thermal_zone") { continue; }
+                if !name.starts_with("thermal_zone") {
+                    continue;
+                }
                 if let Ok(temp_str) = fs::read_to_string(entry.path().join("temp")) {
                     if let Ok(temp) = temp_str.trim().parse::<f64>() {
                         temps.insert(name, temp / 1000.0);
@@ -174,26 +196,36 @@ impl TelemetryCollector {
     }
 
     pub fn get_average_metrics(&self, duration: Duration) -> Option<PerformanceMetrics> {
-        if self.metrics_history.is_empty() { return None; }
-        
+        if self.metrics_history.is_empty() {
+            return None;
+        }
+
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
         let cutoff = now.saturating_sub(duration.as_secs());
-        
-        let recent: Vec<_> = self.metrics_history.iter()
+
+        let recent: Vec<_> = self
+            .metrics_history
+            .iter()
             .filter(|m| m.timestamp >= cutoff)
             .collect();
-        
-        if recent.is_empty() { return None; }
-        
+
+        if recent.is_empty() {
+            return None;
+        }
+
         let count = recent.len() as f64;
         Some(PerformanceMetrics {
             timestamp: now,
             cpu_usage: recent.iter().map(|m| m.cpu_usage).sum::<f64>() / count,
             memory_usage: recent.iter().map(|m| m.memory_usage).sum::<f64>() / count,
-            io_read_bytes: (recent.iter().map(|m| m.io_read_bytes).sum::<u64>() as f64 / count) as u64,
-            io_write_bytes: (recent.iter().map(|m| m.io_write_bytes).sum::<u64>() as f64 / count) as u64,
-            network_rx_bytes: (recent.iter().map(|m| m.network_rx_bytes).sum::<u64>() as f64 / count) as u64,
-            network_tx_bytes: (recent.iter().map(|m| m.network_tx_bytes).sum::<u64>() as f64 / count) as u64,
+            io_read_bytes: (recent.iter().map(|m| m.io_read_bytes).sum::<u64>() as f64 / count)
+                as u64,
+            io_write_bytes: (recent.iter().map(|m| m.io_write_bytes).sum::<u64>() as f64 / count)
+                as u64,
+            network_rx_bytes: (recent.iter().map(|m| m.network_rx_bytes).sum::<u64>() as f64
+                / count) as u64,
+            network_tx_bytes: (recent.iter().map(|m| m.network_tx_bytes).sum::<u64>() as f64
+                / count) as u64,
             gpu_usage: recent.iter().map(|m| m.gpu_usage).sum::<f64>() / count,
             temperatures: HashMap::new(),
             power_consumption: recent.iter().map(|m| m.power_consumption).sum::<f64>() / count,

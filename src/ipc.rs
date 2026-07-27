@@ -82,9 +82,7 @@ impl TunedController {
             return polkit::unauthorized_pair();
         }
         let result = self.daemon.switch_profile(profile_name, true).await;
-        if let Err(error) =
-            Self::profile_changed(&ctxt, profile_name, result.0, &result.1).await
-        {
+        if let Err(error) = Self::profile_changed(&ctxt, profile_name, result.0, &result.1).await {
             error!("Failed to emit profile_changed signal: {error}");
         }
         result
@@ -242,9 +240,7 @@ impl TunedController {
         plugin_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> String {
-        if !self
-            .authorized(&header, "get_plugin_documentation")
-            .await
+        if !self.authorized(&header, "get_plugin_documentation").await
             || !engine::validate_tuned_argument(plugin_name)
         {
             return String::new();
@@ -405,10 +401,7 @@ pub async fn spawn_server(daemon: Arc<Daemon>) -> zbus::Result<Connection> {
 
     let conn = Builder::system()?
         .name(config::NAMESPACE)?
-        .serve_at(
-            config::DBUS_OBJECT,
-            TunedController { daemon, polkit },
-        )?
+        .serve_at(config::DBUS_OBJECT, TunedController { daemon, polkit })?
         .build()
         .await?;
 

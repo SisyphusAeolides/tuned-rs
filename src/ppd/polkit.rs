@@ -34,24 +34,19 @@ impl Polkit {
                 warn!("Caller '{sender}' is not authorized for '{action_id}'");
                 false
             }
-            Err(error) => self.fallback_root_authorization(sender, &action_id, error).await,
+            Err(error) => {
+                self.fallback_root_authorization(sender, &action_id, error)
+                    .await
+            }
         }
     }
 
     async fn check_authorization(&self, sender: &str, action_id: &str) -> anyhow::Result<bool> {
-        let proxy = Proxy::new(
-            &self.connection,
-            POLKIT_BUS,
-            POLKIT_PATH,
-            POLKIT_INTERFACE,
-        )
-        .await?;
+        let proxy = Proxy::new(&self.connection, POLKIT_BUS, POLKIT_PATH, POLKIT_INTERFACE).await?;
 
-        let subject_details =
-            std::collections::HashMap::from([("name", Value::from(sender))]);
+        let subject_details = std::collections::HashMap::from([("name", Value::from(sender))]);
         let subject = ("system-bus-name", subject_details);
-        let details: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let details: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
         let (authorized, _, _): (bool, bool, std::collections::HashMap<String, String>) = proxy
             .call(
@@ -72,9 +67,7 @@ impl Polkit {
         warn!("PolicyKit error for '{action_id}': {error}");
         match get_connection_unix_user(&self.connection, sender).await {
             Ok(0) => {
-                warn!(
-                    "PolicyKit unavailable; allowing root fallback for caller '{sender}'"
-                );
+                warn!("PolicyKit unavailable; allowing root fallback for caller '{sender}'");
                 true
             }
             Ok(_) => {

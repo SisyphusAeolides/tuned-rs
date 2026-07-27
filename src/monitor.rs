@@ -1,9 +1,9 @@
+use crate::DaemonEvent;
 use std::thread;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio_udev::MonitorBuilder;
 use tracing::{error, info};
-use tokio::sync::mpsc;
-use crate::DaemonEvent;
 
 /// Spawns a dedicated thread for libudev because `MonitorSocket` is `!Send`.
 pub fn spawn_power_monitor(tx: mpsc::Sender<DaemonEvent>) -> anyhow::Result<()> {

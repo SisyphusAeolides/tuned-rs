@@ -398,8 +398,8 @@ mod tests {
             .map(|plugin| plugin.name)
             .collect::<HashSet<_>>();
         for expected in [
-            "cpu", "sysctl", "vm", "disk", "acpi", "network", "gpu", "storage",
-            "thermal", "battery", "hermes",
+            "cpu", "sysctl", "vm", "disk", "acpi", "network", "gpu", "storage", "thermal",
+            "battery", "hermes",
         ] {
             assert!(names.contains(expected));
         }

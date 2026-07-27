@@ -179,12 +179,13 @@ macro_rules! ppd_interface {
             ) -> fdo::Result<u32> {
                 if !self
                     .polkit
-                    .authorize(polkit::sender_from_header(&header).as_deref(), "hold-profile")
+                    .authorize(
+                        polkit::sender_from_header(&header).as_deref(),
+                        "hold-profile",
+                    )
                     .await
                 {
-                    return Err(fdo::Error::AccessDenied(
-                        "Unauthorized".to_string(),
-                    ));
+                    return Err(fdo::Error::AccessDenied("Unauthorized".to_string()));
                 }
                 let caller = header
                     .sender()
@@ -210,9 +211,7 @@ macro_rules! ppd_interface {
                     )
                     .await
                 {
-                    return Err(fdo::Error::AccessDenied(
-                        "Unauthorized".to_string(),
-                    ));
+                    return Err(fdo::Error::AccessDenied("Unauthorized".to_string()));
                 }
                 let caller = header
                     .sender()
@@ -263,9 +262,7 @@ pub async fn spawn_servers(
         .build()
         .await?;
 
-    let emitter = Arc::new(PropertyEmitter {
-        conn: conn.clone(),
-    });
+    let emitter = Arc::new(PropertyEmitter { conn: conn.clone() });
 
     let emitter_for_releases = emitter.clone();
     tokio::spawn(async move {

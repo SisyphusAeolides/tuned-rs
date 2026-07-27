@@ -1,7 +1,7 @@
+use anyhow::Result;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use anyhow::Result;
 use tracing::info;
 
 pub struct WorkloadDetector {
@@ -37,7 +37,11 @@ impl WorkloadDetector {
 
     pub fn detect_workload(&mut self) -> Result<WorkloadType> {
         let now = SystemTime::now();
-        if now.duration_since(self.last_check).unwrap_or(Duration::ZERO) < self.check_interval {
+        if now
+            .duration_since(self.last_check)
+            .unwrap_or(Duration::ZERO)
+            < self.check_interval
+        {
             return Ok(self.current_workload);
         }
         self.last_check = now;
@@ -56,7 +60,10 @@ impl WorkloadDetector {
         };
 
         if workload != self.current_workload {
-            info!("Workload changed: {:?} -> {:?}", self.current_workload, workload);
+            info!(
+                "Workload changed: {:?} -> {:?}",
+                self.current_workload, workload
+            );
             self.current_workload = workload;
         }
 
@@ -67,17 +74,23 @@ impl WorkloadDetector {
         let stat = fs::read_to_string("/proc/stat")?;
         let line = stat.lines().next().unwrap_or("");
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 5 { return Ok(0.0); }
-        
+        if parts.len() < 5 {
+            return Ok(0.0);
+        }
+
         let user: u64 = parts[1].parse().unwrap_or(0);
         let nice: u64 = parts[2].parse().unwrap_or(0);
         let system: u64 = parts[3].parse().unwrap_or(0);
         let idle: u64 = parts[4].parse().unwrap_or(0);
-        
+
         let total = user + nice + system + idle;
         let active = user + nice + system;
-        
-        Ok(if total > 0 { (active as f64 / total as f64) * 100.0 } else { 0.0 })
+
+        Ok(if total > 0 {
+            (active as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        })
     }
 
     fn get_io_usage(&self) -> Result<f64> {
