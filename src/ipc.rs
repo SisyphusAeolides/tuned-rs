@@ -195,7 +195,7 @@ impl TunedController {
         if !self.authorized(&header, "verify_profile").await {
             return false;
         }
-        !self.daemon.active_profile().await.is_empty()
+        self.daemon.verify_active_profile(false).await
     }
 
     #[zbus(name = "verify_profile_ignore_missing")]
@@ -206,7 +206,7 @@ impl TunedController {
         {
             return false;
         }
-        !self.daemon.active_profile().await.is_empty()
+        self.daemon.verify_active_profile(true).await
     }
 
     #[zbus(name = "log_capture_start")]
