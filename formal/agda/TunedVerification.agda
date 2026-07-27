@@ -1,12 +1,16 @@
 {-# OPTIONS --safe #-}
 module TunedVerification where
 
-open import Agda.Builtin.Bool using (Bool; true; false; _&&_)
+open import Agda.Builtin.Bool using (Bool; true; false)
 open import Agda.Builtin.Equality using (_≡_; refl)
 open import Agda.Builtin.List using (List; []; _∷_)
 
 data Verdict : Set where
   match missing mismatch unsupported readError : Verdict
+
+and : Bool → Bool → Bool
+and true right = right
+and false _ = false
 
 issuePasses : Bool → Verdict → Bool
 issuePasses _ match = true
@@ -19,7 +23,7 @@ issuePasses _ readError = false
 reportPasses : Bool → List Verdict → Bool
 reportPasses ignoreMissing [] = true
 reportPasses ignoreMissing (verdict ∷ rest) =
-  issuePasses ignoreMissing verdict && reportPasses ignoreMissing rest
+  and (issuePasses ignoreMissing verdict) (reportPasses ignoreMissing rest)
 
 strictMissingFails : issuePasses false missing ≡ false
 strictMissingFails = refl
