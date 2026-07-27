@@ -17,6 +17,12 @@ struct RollbackFile {
     order: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManagedFileSnapshot {
+    existed: bool,
+    contents: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct RollbackState {
     entries: HashMap<String, String>,
@@ -71,6 +77,26 @@ impl Rollback {
         self.persist_state(&next)?;
         *state = next;
         Ok(())
+    }
+
+    pub fn record_managed_file(&self, path: &Path) -> Result<()> {
+        validate_managed_file(path)?;
+        let snapshot = match fs::read(path) {
+            Ok(contents) => ManagedFileSnapshot {
+                existed: true,
+                contents,
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => ManagedFileSnapshot {
+                existed: false,
+                contents: Vec::new(),
+            },
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Failed to snapshot {}", path.display()))
+            }
+        };
+        let encoded = serde_json::to_string(&snapshot)?;
+        self.record_original(&rollback_key("file", &path.to_string_lossy()), &encoded)
     }
 
     pub fn restore_all(&self) -> Result<()> {
@@ -189,7 +215,38 @@ fn restore_entry(key: &str, original: &str) -> Result<()> {
         "sysctl" => crate::tuning::sysctl::write_raw(target, original),
         "vm" => crate::tuning::vm::write_raw(target, original),
         "sysfs" => crate::tuning::sysfs::write_raw(Path::new(target), original),
+        "file" => restore_managed_file(Path::new(target), original),
+        "script" => crate::tuning::script::run_rollback_script(Path::new(target), original),
         _ => bail!("Unknown rollback key type in '{key}'"),
+    }
+}
+
+fn restore_managed_file(path: &Path, encoded: &str) -> Result<()> {
+    validate_managed_file(path)?;
+    let snapshot: ManagedFileSnapshot = serde_json::from_str(encoded)
+        .with_context(|| format!("Invalid file rollback snapshot for {}", path.display()))?;
+    if snapshot.existed {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+        let temporary = path.with_extension("tuned-rs-rollback");
+        fs::write(&temporary, snapshot.contents)
+            .with_context(|| format!("Failed to write {}", temporary.display()))?;
+        fs::rename(&temporary, path)
+            .with_context(|| format!("Failed to restore {}", path.display()))?;
+    } else if path.exists() {
+        fs::remove_file(path).with_context(|| format!("Failed to remove {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn validate_managed_file(path: &Path) -> Result<()> {
+    let allowed = [config::resolve_path("/etc/modprobe.d/tuned.conf")];
+    if allowed.iter().any(|candidate| candidate == path) {
+        Ok(())
+    } else {
+        bail!("Refusing managed-file rollback outside the TuneD allowlist: {}", path.display())
     }
 }
 
@@ -248,5 +305,38 @@ mod tests {
         let rollback = Rollback::load_from_path(path).unwrap();
         let state = rollback.state.lock().unwrap();
         assert_eq!(state.order, vec!["sysfs:a", "sysfs:b"]);
+    }
+
+    #[test]
+    fn restores_existing_managed_file_contents() {
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("TUNED_RS_ROOT", dir.path());
+        let path = config::resolve_path("/etc/modprobe.d/tuned.conf");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"before\n").unwrap();
+        let rollback = Rollback::load_from_path(dir.path().join("rollback.json")).unwrap();
+
+        rollback.record_managed_file(&path).unwrap();
+        fs::write(&path, b"after\n").unwrap();
+        rollback.restore_all().unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"before\n");
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn removes_managed_file_that_did_not_exist_before_apply() {
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("TUNED_RS_ROOT", dir.path());
+        let path = config::resolve_path("/etc/modprobe.d/tuned.conf");
+        let rollback = Rollback::load_from_path(dir.path().join("rollback.json")).unwrap();
+
+        rollback.record_managed_file(&path).unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"created\n").unwrap();
+        rollback.restore_all().unwrap();
+
+        assert!(!path.exists());
+        std::env::remove_var("TUNED_RS_ROOT");
     }
 }
