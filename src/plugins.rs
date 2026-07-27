@@ -21,9 +21,44 @@ const CPU_OPTIONS: &[PluginOption] = &[
         hint: "CPU frequency governor applied to matching processors.",
     },
     PluginOption {
+        name: "energy_perf_bias",
+        default_value: "",
+        hint: "CPU energy-performance bias with ordered fallback values.",
+    },
+    PluginOption {
         name: "energy_performance_preference",
         default_value: "",
         hint: "Energy-performance preference applied through cpufreq EPP.",
+    },
+    PluginOption {
+        name: "min_perf_pct",
+        default_value: "",
+        hint: "Minimum P-state performance percentage.",
+    },
+    PluginOption {
+        name: "max_perf_pct",
+        default_value: "",
+        hint: "Maximum P-state performance percentage.",
+    },
+    PluginOption {
+        name: "boost",
+        default_value: "",
+        hint: "CPU frequency boost or Intel turbo switch.",
+    },
+    PluginOption {
+        name: "force_latency",
+        default_value: "",
+        hint: "Persistent CPU idle-latency constraint.",
+    },
+    PluginOption {
+        name: "pm_qos_resume_latency_us",
+        default_value: "",
+        hint: "Per-CPU PM QoS resume latency in microseconds.",
+    },
+    PluginOption {
+        name: "sampling_down_factor",
+        default_value: "",
+        hint: "Governor sampling-down multiplier.",
     },
 ];
 
@@ -110,7 +145,90 @@ const NETWORK_OPTIONS: &[PluginOption] = &[
         default_value: "",
         hint: "TCP Fast Open mode.",
     },
+    PluginOption {
+        name: "tcp_rmem",
+        default_value: "",
+        hint: "TCP receive-buffer triplet.",
+    },
+    PluginOption {
+        name: "tcp_wmem",
+        default_value: "",
+        hint: "TCP transmit-buffer triplet.",
+    },
+    PluginOption {
+        name: "tcp_max_syn_backlog",
+        default_value: "",
+        hint: "Maximum queued connection requests.",
+    },
+    PluginOption {
+        name: "tcp_tw_reuse",
+        default_value: "",
+        hint: "TCP TIME-WAIT socket reuse policy.",
+    },
+    PluginOption {
+        name: "tcp_fin_timeout",
+        default_value: "",
+        hint: "TCP FIN timeout.",
+    },
+    PluginOption {
+        name: "core_rmem_max",
+        default_value: "",
+        hint: "Maximum core socket receive buffer.",
+    },
+    PluginOption {
+        name: "core_wmem_max",
+        default_value: "",
+        hint: "Maximum core socket transmit buffer.",
+    },
+    PluginOption {
+        name: "core_netdev_max_backlog",
+        default_value: "",
+        hint: "Maximum network receive backlog.",
+    },
+    PluginOption {
+        name: "core_somaxconn",
+        default_value: "",
+        hint: "Maximum listen socket backlog.",
+    },
 ];
+
+const AUDIO_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "timeout",
+        default_value: "0",
+        hint: "Audio codec power-save timeout in seconds.",
+    },
+    PluginOption {
+        name: "reset_controller",
+        default_value: "true",
+        hint: "Reset the supported audio controller when power saving changes.",
+    },
+];
+
+const VIDEO_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "radeon_powersave",
+        default_value: "",
+        hint: "Ordered Radeon power-method and DPM fallback list.",
+    },
+    PluginOption {
+        name: "panel_power_savings",
+        default_value: "",
+        hint: "amdgpu panel power-savings level from zero through four.",
+    },
+];
+
+const SCSI_HOST_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "alpm",
+    default_value: "",
+    hint: "SATA Aggressive Link Power Management policy.",
+}];
+
+const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "script",
+    default_value: "",
+    hint: "Executable inside a configured profile directory.",
+}];
 
 const GPU_OPTIONS: &[PluginOption] = &[
     PluginOption {
@@ -279,8 +397,13 @@ const HERMES_OPTIONS: &[PluginOption] = &[
 
 pub const PLUGINS: &[PluginDescriptor] = &[
     PluginDescriptor {
+        name: "modules",
+        documentation: "Writes kernel module parameters and optionally reloads modules.",
+        options: &[],
+    },
+    PluginDescriptor {
         name: "cpu",
-        documentation: "Controls CPU frequency policy and energy-performance preference.",
+        documentation: "Controls CPU frequency, P-state, boost, and latency policy.",
         options: CPU_OPTIONS,
     },
     PluginDescriptor {
@@ -304,9 +427,34 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: ACPI_OPTIONS,
     },
     PluginDescriptor {
+        name: "net",
+        documentation: "Provides the upstream TuneD network plugin identity.",
+        options: NETWORK_OPTIONS,
+    },
+    PluginDescriptor {
         name: "network",
         documentation: "Controls global TCP stack policy.",
         options: NETWORK_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "audio",
+        documentation: "Controls supported audio codec power-saving parameters.",
+        options: AUDIO_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "video",
+        documentation: "Controls Radeon power policy and amdgpu panel power savings.",
+        options: VIDEO_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "scsi_host",
+        documentation: "Controls SATA link power management on supported SCSI hosts.",
+        options: SCSI_HOST_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "script",
+        documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
+        options: SCRIPT_OPTIONS,
     },
     PluginDescriptor {
         name: "gpu",
@@ -398,8 +546,23 @@ mod tests {
             .map(|plugin| plugin.name)
             .collect::<HashSet<_>>();
         for expected in [
-            "cpu", "sysctl", "vm", "disk", "acpi", "network", "gpu", "storage", "thermal",
-            "battery", "hermes",
+            "modules",
+            "cpu",
+            "sysctl",
+            "vm",
+            "disk",
+            "acpi",
+            "net",
+            "network",
+            "audio",
+            "video",
+            "scsi_host",
+            "script",
+            "gpu",
+            "storage",
+            "thermal",
+            "battery",
+            "hermes",
         ] {
             assert!(names.contains(expected));
         }
