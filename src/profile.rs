@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -48,7 +48,7 @@ pub struct AcpiSettings {
 
 pub type PluginOptions = Vec<(String, String)>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Profile {
     pub name: String,
     pub summary: String,
@@ -66,6 +66,75 @@ pub struct Profile {
     pub hermes: PluginOptions,
 }
 
+impl Profile {
+    fn merge_from(&mut self, newer: Profile) {
+        if !newer.summary.is_empty() {
+            self.summary = newer.summary;
+        }
+        if !newer.description.is_empty() {
+            self.description = newer.description;
+        }
+
+        merge_optional(&mut self.cpu.governor, newer.cpu.governor);
+        merge_optional(
+            &mut self.cpu.energy_performance_preference,
+            newer.cpu.energy_performance_preference,
+        );
+
+        merge_optional(
+            &mut self.vm.transparent_hugepages,
+            newer.vm.transparent_hugepages,
+        );
+        merge_optional(
+            &mut self.vm.transparent_hugepage_defrag,
+            newer.vm.transparent_hugepage_defrag,
+        );
+        merge_optional(&mut self.vm.dirty_bytes, newer.vm.dirty_bytes);
+        merge_optional(&mut self.vm.dirty_ratio, newer.vm.dirty_ratio);
+        merge_optional(
+            &mut self.vm.dirty_background_bytes,
+            newer.vm.dirty_background_bytes,
+        );
+        merge_optional(
+            &mut self.vm.dirty_background_ratio,
+            newer.vm.dirty_background_ratio,
+        );
+
+        merge_optional(&mut self.disk.devices, newer.disk.devices);
+        merge_optional(&mut self.disk.elevator, newer.disk.elevator);
+        merge_optional(&mut self.disk.readahead, newer.disk.readahead);
+        merge_optional(
+            &mut self.acpi.platform_profile,
+            newer.acpi.platform_profile,
+        );
+
+        merge_optional(
+            &mut self.network.tcp_congestion_control,
+            newer.network.tcp_congestion_control,
+        );
+        merge_optional(
+            &mut self.network.tcp_window_scaling,
+            newer.network.tcp_window_scaling,
+        );
+        merge_optional(
+            &mut self.network.tcp_timestamps,
+            newer.network.tcp_timestamps,
+        );
+        merge_optional(&mut self.network.tcp_sack, newer.network.tcp_sack);
+        merge_optional(
+            &mut self.network.tcp_fastopen,
+            newer.network.tcp_fastopen,
+        );
+
+        self.sysctl.extend(newer.sysctl);
+        merge_plugin_options(&mut self.gpu, newer.gpu);
+        merge_plugin_options(&mut self.storage, newer.storage);
+        merge_plugin_options(&mut self.thermal, newer.thermal);
+        merge_plugin_options(&mut self.battery, newer.battery);
+        merge_plugin_options(&mut self.hermes, newer.hermes);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProfileCatalog {
     profiles: HashMap<String, Profile>,
@@ -73,14 +142,25 @@ pub struct ProfileCatalog {
 
 impl ProfileCatalog {
     pub fn load_from_dirs(dirs: &[PathBuf]) -> Result<Self> {
-        let mut profiles = HashMap::new();
+        let sources = collect_profile_sources(dirs)?;
+        let mut names = sources.keys().cloned().collect::<Vec<_>>();
+        names.sort_unstable();
 
-        for dir in dirs {
-            if !dir.is_dir() {
-                warn!("Profile directory does not exist: {}", dir.display());
-                continue;
+        let mut profiles = HashMap::new();
+        for name in names {
+            let mut layers = Vec::new();
+            let mut processed = HashSet::new();
+            match load_profile_layers(&name, &sources, &mut processed, &mut layers) {
+                Ok(()) => {
+                    let mut profile = Profile::default();
+                    for layer in layers {
+                        profile.merge_from(layer);
+                    }
+                    profile.name = name.clone();
+                    profiles.insert(name, profile);
+                }
+                Err(error) => warn!("Skipping profile '{name}': {error}"),
             }
-            scan_profile_dir(dir, &mut profiles)?;
         }
 
         info!("Loaded {} TuneD profile(s)", profiles.len());
@@ -111,16 +191,11 @@ impl ProfileCatalog {
         match self.profiles.get(name) {
             Some(profile) => (
                 true,
+                profile.name.clone(),
                 profile.summary.clone(),
                 profile.description.clone(),
-                String::new(),
             ),
-            None => (
-                false,
-                String::new(),
-                String::new(),
-                format!("Profile '{name}' not found"),
-            ),
+            None => (false, String::new(), String::new(), String::new()),
         }
     }
 
@@ -136,92 +211,165 @@ impl ProfileCatalog {
     }
 }
 
-fn scan_profile_dir(dir: &Path, profiles: &mut HashMap<String, Profile>) -> Result<()> {
-    for entry in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
+fn collect_profile_sources(dirs: &[PathBuf]) -> Result<HashMap<String, PathBuf>> {
+    let mut sources = HashMap::new();
+
+    for dir in dirs {
+        if !dir.is_dir() {
+            warn!("Profile directory does not exist: {}", dir.display());
             continue;
         }
 
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !engine::validate_profile_name(&name) {
-            continue;
-        }
-
-        let conf_path = entry.path().join(PROFILE_FILE);
-        if !conf_path.is_file() {
-            continue;
-        }
-
-        match load_profile(&conf_path, &name) {
-            Ok(profile) => {
-                profiles.insert(name, profile);
+        for entry in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
             }
-            Err(error) => warn!("Skipping profile '{name}': {error}"),
+
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !engine::validate_profile_name(&name) {
+                continue;
+            }
+
+            let path = entry.path().join(PROFILE_FILE);
+            if path.is_file() {
+                sources.insert(name, path);
+            }
         }
     }
 
+    Ok(sources)
+}
+
+fn load_profile_layers(
+    requested_name: &str,
+    sources: &HashMap<String, PathBuf>,
+    processed: &mut HashSet<PathBuf>,
+    layers: &mut Vec<Profile>,
+) -> Result<()> {
+    let (conditional, name) = requested_name
+        .strip_prefix('-')
+        .map_or((false, requested_name), |name| (true, name));
+
+    if !engine::validate_profile_name(name) {
+        bail!("Invalid profile name '{requested_name}'");
+    }
+
+    let Some(path) = sources.get(name) else {
+        if conditional {
+            return Ok(());
+        }
+        bail!("Profile '{name}' not found");
+    };
+
+    if !processed.insert(path.clone()) {
+        return Ok(());
+    }
+
+    for include in read_includes(path)? {
+        load_profile_layers(&include, sources, processed, layers)?;
+    }
+    layers.push(load_profile(path, name)?);
     Ok(())
 }
 
-pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
-    let mut ini = Ini::new();
-    ini.load(path.to_str().unwrap_or_default())
-        .map_err(|error| anyhow::anyhow!("Failed to parse {}: {error}", path.display()))?;
+fn read_includes(path: &Path) -> Result<Vec<String>> {
+    let ini = read_ini(path)?;
+    let profile_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let include = ini
+        .get("main", "include")
+        .map(|value| expand_profile_dir(&value, profile_dir))
+        .unwrap_or_default();
 
-    let summary = ini
-        .get("main", "summary")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let description = ini
-        .get("main", "description")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    Ok(include
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
+    let ini = read_ini(path)?;
+    let profile_dir = path.parent().unwrap_or_else(|| Path::new("."));
+
+    let summary = section_value(&ini, profile_dir, "main", "summary").unwrap_or_default();
+    let description =
+        section_value(&ini, profile_dir, "main", "description").unwrap_or_default();
 
     let cpu = CpuSettings {
-        governor: section_value(&ini, "cpu", "governor"),
+        governor: section_value(&ini, profile_dir, "cpu", "governor"),
         energy_performance_preference: section_value(
             &ini,
+            profile_dir,
             "cpu",
             "energy_performance_preference",
         ),
     };
 
     let vm = VmSettings {
-        transparent_hugepages: section_value(&ini, "vm", "transparent_hugepages")
-            .or_else(|| section_value(&ini, "vm", "transparent_hugepage")),
-        transparent_hugepage_defrag: section_value(&ini, "vm", "transparent_hugepage.defrag"),
-        dirty_bytes: section_value(&ini, "vm", "dirty_bytes"),
-        dirty_ratio: section_value(&ini, "vm", "dirty_ratio"),
-        dirty_background_bytes: section_value(&ini, "vm", "dirty_background_bytes"),
-        dirty_background_ratio: section_value(&ini, "vm", "dirty_background_ratio"),
+        transparent_hugepages: section_value(
+            &ini,
+            profile_dir,
+            "vm",
+            "transparent_hugepages",
+        )
+        .or_else(|| section_value(&ini, profile_dir, "vm", "transparent_hugepage")),
+        transparent_hugepage_defrag: section_value(
+            &ini,
+            profile_dir,
+            "vm",
+            "transparent_hugepage.defrag",
+        ),
+        dirty_bytes: section_value(&ini, profile_dir, "vm", "dirty_bytes"),
+        dirty_ratio: section_value(&ini, profile_dir, "vm", "dirty_ratio"),
+        dirty_background_bytes: section_value(
+            &ini,
+            profile_dir,
+            "vm",
+            "dirty_background_bytes",
+        ),
+        dirty_background_ratio: section_value(
+            &ini,
+            profile_dir,
+            "vm",
+            "dirty_background_ratio",
+        ),
     };
 
     let disk = DiskSettings {
-        devices: section_value(&ini, "disk", "devices"),
-        elevator: section_value(&ini, "disk", "elevator"),
-        readahead: section_value(&ini, "disk", "readahead"),
+        devices: section_value(&ini, profile_dir, "disk", "devices"),
+        elevator: section_value(&ini, profile_dir, "disk", "elevator"),
+        readahead: section_value(&ini, profile_dir, "disk", "readahead"),
     };
 
     let acpi = AcpiSettings {
-        platform_profile: section_value(&ini, "acpi", "platform_profile"),
+        platform_profile: section_value(&ini, profile_dir, "acpi", "platform_profile"),
     };
 
     let network = NetworkSettings {
-        tcp_congestion_control: section_value(&ini, "network", "tcp_congestion_control"),
-        tcp_window_scaling: section_value(&ini, "network", "tcp_window_scaling"),
-        tcp_timestamps: section_value(&ini, "network", "tcp_timestamps"),
-        tcp_sack: section_value(&ini, "network", "tcp_sack"),
-        tcp_fastopen: section_value(&ini, "network", "tcp_fastopen"),
+        tcp_congestion_control: section_value(
+            &ini,
+            profile_dir,
+            "network",
+            "tcp_congestion_control",
+        ),
+        tcp_window_scaling: section_value(
+            &ini,
+            profile_dir,
+            "network",
+            "tcp_window_scaling",
+        ),
+        tcp_timestamps: section_value(&ini, profile_dir, "network", "tcp_timestamps"),
+        tcp_sack: section_value(&ini, profile_dir, "network", "tcp_sack"),
+        tcp_fastopen: section_value(&ini, profile_dir, "network", "tcp_fastopen"),
     };
 
     let mut sysctl = HashMap::new();
     if let Some(section) = ini.get_map_ref().get("sysctl") {
         for (key, value) in section {
             if let Some(value) = value {
-                sysctl.insert(key.clone(), value.trim().to_string());
+                sysctl.insert(key.clone(), expand_profile_dir(value.trim(), profile_dir));
             }
         }
     }
@@ -236,21 +384,28 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         acpi,
         network,
         sysctl,
-        gpu: section_options(&ini, "gpu"),
-        storage: section_options(&ini, "storage"),
-        thermal: section_options(&ini, "thermal"),
-        battery: section_options(&ini, "battery"),
-        hermes: section_options(&ini, "hermes"),
+        gpu: section_options(&ini, profile_dir, "gpu"),
+        storage: section_options(&ini, profile_dir, "storage"),
+        thermal: section_options(&ini, profile_dir, "thermal"),
+        battery: section_options(&ini, profile_dir, "battery"),
+        hermes: section_options(&ini, profile_dir, "hermes"),
     })
 }
 
-fn section_value(ini: &Ini, section: &str, key: &str) -> Option<String> {
+fn read_ini(path: &Path) -> Result<Ini> {
+    let mut ini = Ini::new();
+    ini.load(path.to_str().unwrap_or_default())
+        .map_err(|error| anyhow::anyhow!("Failed to parse {}: {error}", path.display()))?;
+    Ok(ini)
+}
+
+fn section_value(ini: &Ini, profile_dir: &Path, section: &str, key: &str) -> Option<String> {
     ini.get(section, key)
-        .map(|value| value.trim().to_string())
+        .map(|value| expand_profile_dir(value.trim(), profile_dir))
         .filter(|value| !value.is_empty())
 }
 
-fn section_options(ini: &Ini, section: &str) -> PluginOptions {
+fn section_options(ini: &Ini, profile_dir: &Path, section: &str) -> PluginOptions {
     let mut options = ini
         .get_map_ref()
         .get(section)
@@ -259,12 +414,39 @@ fn section_options(ini: &Ini, section: &str) -> PluginOptions {
         .filter_map(|(key, value)| {
             value
                 .as_ref()
-                .map(|value| (key.clone(), value.trim().to_string()))
+                .map(|value| (key.clone(), expand_profile_dir(value.trim(), profile_dir)))
         })
         .filter(|(_, value)| !value.is_empty())
         .collect::<Vec<_>>();
     options.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     options
+}
+
+fn expand_profile_dir(value: &str, profile_dir: &Path) -> String {
+    const MARKER: &str = "${i:PROFILE_DIR}";
+    const ESCAPED_MARKER: &str = "\\${i:PROFILE_DIR}";
+    const PLACEHOLDER: &str = "\u{1f}TUNED_PROFILE_DIR\u{1f}";
+
+    value
+        .replace(ESCAPED_MARKER, PLACEHOLDER)
+        .replace(MARKER, &profile_dir.to_string_lossy())
+        .replace(PLACEHOLDER, ESCAPED_MARKER)
+}
+
+fn merge_optional<T>(current: &mut Option<T>, newer: Option<T>) {
+    if newer.is_some() {
+        *current = newer;
+    }
+}
+
+fn merge_plugin_options(current: &mut PluginOptions, newer: PluginOptions) {
+    for (key, value) in newer {
+        if let Some((_, current_value)) = current.iter_mut().find(|(name, _)| name == &key) {
+            *current_value = value;
+        } else {
+            current.push((key, value));
+        }
+    }
 }
 
 pub fn read_active_profile() -> Result<Option<String>> {
@@ -327,6 +509,12 @@ mod tests {
             .find_map(|(name, value)| (name == key).then_some(value.as_str()))
     }
 
+    fn write_profile(root: &Path, name: &str, body: &str) {
+        let dir = root.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(PROFILE_FILE), body).unwrap();
+    }
+
     #[test]
     fn parses_extended_profile_sections() {
         let dir = TempDir::new().unwrap();
@@ -380,18 +568,108 @@ mod tests {
         let root = TempDir::new().unwrap();
         let system = root.path().join("usr/lib/tuned/profiles");
         let user = root.path().join("etc/tuned/profiles");
-        for (base, summary) in [(&system, "system"), (&user, "custom")] {
-            let profile_dir = base.join("balanced");
-            fs::create_dir_all(&profile_dir).unwrap();
-            fs::write(
-                profile_dir.join(PROFILE_FILE),
-                format!("[main]\nsummary={summary}\n"),
-            )
-            .unwrap();
-        }
+        write_profile(&system, "balanced", "[main]\nsummary=system\n");
+        write_profile(&user, "balanced", "[main]\nsummary=custom\n");
 
-        let catalog =
-            ProfileCatalog::load_from_dirs(&[system.clone(), user.clone()]).unwrap();
+        let catalog = ProfileCatalog::load_from_dirs(&[system, user]).unwrap();
         assert_eq!(catalog.get("balanced").unwrap().summary, "custom");
+    }
+
+    #[test]
+    fn included_profiles_merge_before_the_child() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "base",
+            "[main]\nsummary=Base\ndescription=Inherited description\n\n[cpu]\ngovernor=powersave\n\n[sysctl]\nvm.swappiness=20\n\n[gpu]\nnvidia_power_limit=200\n",
+        );
+        write_profile(
+            &profiles,
+            "child",
+            "[main]\ninclude=base\nsummary=Child\n\n[cpu]\nenergy_performance_preference=performance\n\n[sysctl]\nvm.swappiness=10\n\n[gpu]\nnvidia_power_limit=250\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let child = catalog.get("child").unwrap();
+        assert_eq!(child.summary, "Child");
+        assert_eq!(child.description, "Inherited description");
+        assert_eq!(child.cpu.governor.as_deref(), Some("powersave"));
+        assert_eq!(
+            child.cpu.energy_performance_preference.as_deref(),
+            Some("performance")
+        );
+        assert_eq!(child.sysctl.get("vm.swappiness"), Some(&"10".to_string()));
+        assert_eq!(option_value(&child.gpu, "nvidia_power_limit"), Some("250"));
+        assert_eq!(
+            catalog.profile_info("child"),
+            (
+                true,
+                "child".to_string(),
+                "Child".to_string(),
+                "Inherited description".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn conditional_missing_include_is_ignored() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "child",
+            "[main]\ninclude=-not-installed\nsummary=Child\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        assert_eq!(catalog.get("child").unwrap().summary, "Child");
+    }
+
+    #[test]
+    fn recursive_includes_are_loaded_only_once() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "first",
+            "[main]\ninclude=second\n\n[cpu]\ngovernor=performance\n",
+        );
+        write_profile(
+            &profiles,
+            "second",
+            "[main]\ninclude=first\n\n[cpu]\nenergy_performance_preference=balance_performance\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let first = catalog.get("first").unwrap();
+        assert_eq!(first.cpu.governor.as_deref(), Some("performance"));
+        assert_eq!(
+            first.cpu.energy_performance_preference.as_deref(),
+            Some("balance_performance")
+        );
+    }
+
+    #[test]
+    fn expands_profile_directory_marker() {
+        let root = TempDir::new().unwrap();
+        let profiles = root.path().join("profiles");
+        write_profile(
+            &profiles,
+            "scripted",
+            "[main]\nsummary=Scripted\n\n[hermes]\nfirmware_validation=${i:PROFILE_DIR}/allowlist\ndebug_level=\\${i:PROFILE_DIR}\n",
+        );
+
+        let catalog = ProfileCatalog::load_from_dirs(&[profiles]).unwrap();
+        let scripted = catalog.get("scripted").unwrap();
+        let profile_dir = root.path().join("profiles/scripted");
+        assert_eq!(
+            option_value(&scripted.hermes, "firmware_validation"),
+            Some(profile_dir.join("allowlist").to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            option_value(&scripted.hermes, "debug_level"),
+            Some("\\${i:PROFILE_DIR}")
+        );
     }
 }
