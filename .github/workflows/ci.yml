@@ -30,3 +30,17 @@ jobs:
 
       - name: Test workspace
         run: cargo +1.75.0 test --locked --all-targets
+
+  fortran:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install gfortran
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gfortran
+
+      - name: Check rollback model
+        run: sh scripts/check-formal.sh
