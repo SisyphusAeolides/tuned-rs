@@ -72,8 +72,8 @@ CARGO_NET_OFFLINE=true cargo test --frozen
 %{_prefix}/lib/tuned/
 
 %changelog
-* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@users.noreply.github.com> - 0.1.0-2
+* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 0.1.0-2
 - Preserve debug information across Fedora and Enterprise Linux build roots
 
-* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@users.noreply.github.com> - 0.1.0-1
+* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 0.1.0-1
 - Initial package
