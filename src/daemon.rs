@@ -123,11 +123,11 @@ impl Daemon {
     }
 
     pub async fn switch_profile(&self, profile_name: &str, manual: bool) -> (bool, String) {
-        if !crate::engine::validate_profile_name(profile_name) {
+        let Some(normalized) = crate::engine::normalize_profile_selection(profile_name) else {
             return (false, "Invalid profile_name".to_string());
-        }
+        };
 
-        match self.apply_profile(profile_name, manual).await {
+        match self.apply_profile(&normalized, manual).await {
             Ok(()) => (true, "OK".to_string()),
             Err(error) => (false, error.to_string()),
         }
@@ -137,16 +137,16 @@ impl Daemon {
         let profile = {
             let catalog = self.catalog.lock().await;
             catalog
-                .get(profile_name)
-                .cloned()
-                .with_context(|| format!("Profile '{profile_name}' not found"))?
+                .resolve(profile_name)
+                .with_context(|| format!("Profile selection '{profile_name}' not found"))?
         };
+        let normalized = profile.name.clone();
 
-        info!("Applying profile '{profile_name}'");
+        info!("Applying profile '{normalized}'");
         self.apply_profile_data(profile).await?;
-        profile::save_active_profile(profile_name)?;
+        profile::save_active_profile(&normalized)?;
         profile::save_profile_mode(manual)?;
-        *self.active_profile.lock().await = profile_name.to_string();
+        *self.active_profile.lock().await = normalized;
         *self.manual.lock().await = manual;
         Ok(())
     }
