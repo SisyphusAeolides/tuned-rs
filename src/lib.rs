@@ -10,6 +10,7 @@ pub mod monitor;
 pub mod plugins;
 pub mod polkit;
 pub mod profile;
+pub mod profile_runtime;
 pub mod profile_units;
 pub mod rollback;
 pub mod socket_signals;
