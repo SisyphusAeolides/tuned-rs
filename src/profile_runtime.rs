@@ -71,12 +71,24 @@ impl VariableSet {
 
 pub fn active_units(profile: &Profile) -> Result<Vec<ProfileUnit>> {
     let variables = VariableSet::from_profile(profile)?;
-    let cpuinfo = configured_or_file(
-        "cpuinfo_string",
-        "/proc/cpuinfo",
-        "TUNED_RS_CPUINFO_STRING",
-    )?;
-    let uname = configured_uname()?;
+    let needs_cpuinfo = profile
+        .units
+        .iter()
+        .any(|unit| unit.enabled && unit.cpuinfo_regex.is_some());
+    let needs_uname = profile
+        .units
+        .iter()
+        .any(|unit| unit.enabled && unit.uname_regex.is_some());
+    let cpuinfo = needs_cpuinfo
+        .then(|| {
+            configured_or_file(
+                "cpuinfo_string",
+                "/proc/cpuinfo",
+                "TUNED_RS_CPUINFO_STRING",
+            )
+        })
+        .transpose()?;
+    let uname = needs_uname.then(configured_uname).transpose()?;
 
     let mut active = Vec::new();
     for (index, unit) in profile.units.iter().enumerate() {
@@ -85,13 +97,13 @@ pub fn active_units(profile: &Profile) -> Result<Vec<ProfileUnit>> {
         }
         let unit = expand_unit(unit.clone(), &variables)?;
         if let Some(pattern) = unit.cpuinfo_regex.as_deref() {
-            if !regex_search(pattern, &cpuinfo)? {
+            if !regex_search(pattern, cpuinfo.as_deref().unwrap_or_default())? {
                 debug!("Skipping unit '{}' because cpuinfo does not match", unit.name);
                 continue;
             }
         }
         if let Some(pattern) = unit.uname_regex.as_deref() {
-            if !regex_search(pattern, &uname)? {
+            if !regex_search(pattern, uname.as_deref().unwrap_or_default())? {
                 debug!("Skipping unit '{}' because uname does not match", unit.name);
                 continue;
             }
@@ -269,13 +281,11 @@ mod tests {
 
     #[test]
     fn expands_variables_sequentially_and_preserves_escaped_references() {
-        let profile = Profile {
-            variables: vec![
-                ("ROOT".to_string(), "/srv".to_string()),
-                ("FILE".to_string(), "${ROOT}/data".to_string()),
-            ],
-            ..Profile::default()
-        };
+        let mut profile = Profile::default();
+        profile.variables = vec![
+            ("ROOT".to_string(), "/srv".to_string()),
+            ("FILE".to_string(), "${ROOT}/data".to_string()),
+        ];
         let variables = VariableSet::from_profile(&profile).unwrap();
         assert_eq!(variables.expand("${FILE}").unwrap(), "/srv/data");
         assert_eq!(variables.expand("\\${FILE}").unwrap(), "${FILE}");
