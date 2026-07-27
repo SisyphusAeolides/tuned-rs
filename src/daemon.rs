@@ -11,6 +11,7 @@ use crate::profile::{self, Profile, ProfileCatalog};
 use crate::rollback::Rollback;
 use crate::socket_signals::SignalRegistry;
 use crate::tuning;
+use crate::verification;
 
 pub struct Daemon {
     catalog: Mutex<ProfileCatalog>,
@@ -127,6 +128,34 @@ impl Daemon {
 
     pub async fn recommend_profile(&self) -> String {
         self.catalog.lock().await.recommend()
+    }
+
+    pub async fn verify_active_profile(&self, ignore_missing: bool) -> bool {
+        let profile_name = self.active_profile.lock().await.clone();
+        if profile_name.is_empty() {
+            warn!("Cannot verify a profile because no profile is active");
+            return false;
+        }
+
+        let profile = {
+            let catalog = self.catalog.lock().await;
+            catalog.resolve(&profile_name)
+        };
+        let Some(profile) = profile else {
+            warn!("Cannot resolve active profile selection '{profile_name}' for verification");
+            return false;
+        };
+
+        match run_blocking(move || Ok(verification::verify_profile(&profile))) {
+            Ok(report) => {
+                report.log();
+                report.passes(ignore_missing)
+            }
+            Err(error) => {
+                warn!("Profile verification failed to run: {error}");
+                false
+            }
+        }
     }
 
     pub async fn switch_profile(&self, profile_name: &str, manual: bool) -> (bool, String) {
