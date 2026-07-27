@@ -19,6 +19,9 @@ jobs:
       - name: Install Rust 1.75
         run: rustup toolchain install 1.75.0 --profile minimal --component clippy,rustfmt
 
+      - name: Check TuneD replacement packaging
+        run: make packaging-check
+
       - name: Check formatting
         run: cargo +1.75.0 fmt --all --check
 
