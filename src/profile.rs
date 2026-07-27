@@ -110,7 +110,10 @@ impl Profile {
         self.rebuild_legacy_projection();
     }
 
-    pub fn units_of_type(&self, plugin_type: &str) -> impl Iterator<Item = &ProfileUnit> {
+    pub fn units_of_type<'a>(
+        &'a self,
+        plugin_type: &'a str,
+    ) -> impl Iterator<Item = &'a ProfileUnit> + 'a {
         self.units
             .iter()
             .filter(move |unit| unit.plugin_type == plugin_type)

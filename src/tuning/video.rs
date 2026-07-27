@@ -186,9 +186,7 @@ fn attempt_radeon_candidate(rollback: &Rollback, device: &Path, candidate: &str)
         None => None,
     };
 
-    if let Err(error) = write_node(rollback, &method, method_value) {
-        return Err(error);
-    }
+    write_node(rollback, &method, method_value)?;
 
     if let (Some(path), Some(value)) = (&secondary, secondary_value) {
         if let Err(error) = write_node(rollback, path, value) {

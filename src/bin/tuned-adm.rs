@@ -6,6 +6,9 @@ use zbus::proxy;
 
 const LOG_FILE: &str = "/var/log/tuned/tuned.log";
 
+type InstanceSummary = (String, String);
+type InstanceListReply = (bool, String, Vec<InstanceSummary>);
+
 #[proxy(
     interface = "com.redhat.tuned.control",
     default_service = "com.redhat.tuned",
@@ -62,10 +65,7 @@ trait Tuned {
     ) -> zbus::Result<(bool, String)>;
 
     #[zbus(name = "get_instances")]
-    fn get_instances(
-        &self,
-        plugin_name: &str,
-    ) -> zbus::Result<(bool, String, Vec<(String, String)>)>;
+    fn get_instances(&self, plugin_name: &str) -> zbus::Result<InstanceListReply>;
 
     #[zbus(name = "instance_get_devices")]
     fn instance_get_devices(

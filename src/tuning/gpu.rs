@@ -50,7 +50,7 @@ fn apply_amd_power_profile(rollback: &Rollback, value: &str) -> Result<bool> {
     for entry in fs::read_dir(drm_path)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("card") || name.contains("-") {
+        if !name.starts_with("card") || name.contains('-') {
             continue;
         }
 
