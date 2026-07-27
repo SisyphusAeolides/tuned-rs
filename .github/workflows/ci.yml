@@ -34,16 +34,15 @@ jobs:
       - name: Test workspace
         run: cargo +1.75.0 test --locked --all-targets
 
-  fortran:
+  formal:
     runs-on: ubuntu-latest
+    container: fedora:44
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Install gfortran
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes gfortran
+      - name: Install formal toolchains
+        run: dnf -y -q install Agda idris2 gcc-gfortran make
 
-      - name: Check rollback model
-        run: sh scripts/check-formal.sh
+      - name: Check Fortran, Idris, and Agda models
+        run: sh scripts/check-formal.sh --strict
