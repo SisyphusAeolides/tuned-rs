@@ -9,6 +9,7 @@ use crate::config;
 use crate::instances::InstanceRegistry;
 use crate::profile::{self, Profile, ProfileCatalog};
 use crate::rollback::Rollback;
+use crate::socket_signals::SignalRegistry;
 use crate::tuning;
 
 pub struct Daemon {
@@ -18,6 +19,7 @@ pub struct Daemon {
     running: Mutex<bool>,
     manual: Mutex<bool>,
     instances: Mutex<InstanceRegistry>,
+    signal_paths: Mutex<SignalRegistry>,
 }
 
 impl Daemon {
@@ -29,6 +31,7 @@ impl Daemon {
             running: Mutex::new(false),
             manual: Mutex::new(true),
             instances: Mutex::new(InstanceRegistry::default()),
+            signal_paths: Mutex::new(SignalRegistry::default()),
         })
     }
 
@@ -210,6 +213,30 @@ impl Daemon {
 
     pub async fn instance_destroy(&self, instance_name: &str) -> (bool, String) {
         self.instances.lock().await.destroy(instance_name)
+    }
+
+    pub async fn register_socket_signal_path(&self, path: &str) -> bool {
+        self.signal_paths.lock().await.register(path)
+    }
+
+    pub async fn emit_profile_changed(&self, profile_name: &str, result: bool, error: &str) {
+        let registry = self.signal_paths.lock().await.clone();
+        let profile_name = profile_name.to_string();
+        let error = error.to_string();
+        let failures = run_blocking(move || {
+            Ok(registry.emit_profile_changed(&profile_name, result, &error))
+        });
+        match failures {
+            Ok(failures) => {
+                for (path, error) in failures {
+                    warn!(
+                        "Failed to send profile_changed signal to {}: {error}",
+                        path.display()
+                    );
+                }
+            }
+            Err(error) => warn!("Failed to deliver profile_changed socket signals: {error}"),
+        }
     }
 
     async fn apply_profile_data(&self, profile: Profile) -> Result<()> {
