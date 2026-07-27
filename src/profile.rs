@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use configparser::ini::Ini;
 use tracing::{info, warn};
 
@@ -46,6 +46,8 @@ pub struct AcpiSettings {
     pub platform_profile: Option<String>,
 }
 
+pub type PluginOptions = Vec<(String, String)>;
+
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub name: String,
@@ -57,6 +59,11 @@ pub struct Profile {
     pub acpi: AcpiSettings,
     pub network: NetworkSettings,
     pub sysctl: HashMap<String, String>,
+    pub gpu: PluginOptions,
+    pub storage: PluginOptions,
+    pub thermal: PluginOptions,
+    pub battery: PluginOptions,
+    pub hermes: PluginOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -229,6 +236,11 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         acpi,
         network,
         sysctl,
+        gpu: section_options(&ini, "gpu"),
+        storage: section_options(&ini, "storage"),
+        thermal: section_options(&ini, "thermal"),
+        battery: section_options(&ini, "battery"),
+        hermes: section_options(&ini, "hermes"),
     })
 }
 
@@ -236,6 +248,23 @@ fn section_value(ini: &Ini, section: &str, key: &str) -> Option<String> {
     ini.get(section, key)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn section_options(ini: &Ini, section: &str) -> PluginOptions {
+    let mut options = ini
+        .get_map_ref()
+        .get(section)
+        .into_iter()
+        .flat_map(|entries| entries.iter())
+        .filter_map(|(key, value)| {
+            value
+                .as_ref()
+                .map(|value| (key.clone(), value.trim().to_string()))
+        })
+        .filter(|(_, value)| !value.is_empty())
+        .collect::<Vec<_>>();
+    options.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    options
 }
 
 pub fn read_active_profile() -> Result<Option<String>> {
@@ -292,6 +321,12 @@ mod tests {
     use std::io::Write;
     use tempfile::TempDir;
 
+    fn option_value<'a>(options: &'a PluginOptions, key: &str) -> Option<&'a str> {
+        options
+            .iter()
+            .find_map(|(name, value)| (name == key).then_some(value.as_str()))
+    }
+
     #[test]
     fn parses_extended_profile_sections() {
         let dir = TempDir::new().unwrap();
@@ -300,7 +335,7 @@ mod tests {
         let mut file = fs::File::create(profile_dir.join(PROFILE_FILE)).unwrap();
         writeln!(
             file,
-            "[main]\nsummary=Performance\n\n[cpu]\ngovernor=performance\n\n[vm]\ndirty_bytes=40%\n\n[disk]\nreadahead=>4096\n\n[acpi]\nplatform_profile=performance|balanced\n\n[sysctl]\nvm.swappiness=10\nnet.core.somaxconn=>2048\n"
+            "[main]\nsummary=Performance\n\n[cpu]\ngovernor=performance\n\n[vm]\ndirty_bytes=40%\n\n[disk]\nreadahead=>4096\n\n[acpi]\nplatform_profile=performance|balanced\n\n[sysctl]\nvm.swappiness=10\nnet.core.somaxconn=>2048\n\n[gpu]\nnvidia_power_limit=250\namd_power_profile=high\n\n[storage]\nnvme_apst=0\nio_scheduler=mq-deadline\n\n[thermal]\ncpu_temp_limit=85\nfan_control=auto\n\n[battery]\ncharge_start_threshold=20\ncharge_stop_threshold=80\n\n[hermes]\ngsp_power_mode=performance\ncmd_ring_size=4096\n"
         )
         .unwrap();
 
@@ -316,6 +351,28 @@ mod tests {
             profile.sysctl.get("net.core.somaxconn"),
             Some(&">2048".to_string())
         );
+        assert_eq!(option_value(&profile.gpu, "nvidia_power_limit"), Some("250"));
+        assert_eq!(option_value(&profile.gpu, "amd_power_profile"), Some("high"));
+        assert_eq!(option_value(&profile.storage, "nvme_apst"), Some("0"));
+        assert_eq!(
+            option_value(&profile.storage, "io_scheduler"),
+            Some("mq-deadline")
+        );
+        assert_eq!(option_value(&profile.thermal, "cpu_temp_limit"), Some("85"));
+        assert_eq!(option_value(&profile.thermal, "fan_control"), Some("auto"));
+        assert_eq!(
+            option_value(&profile.battery, "charge_start_threshold"),
+            Some("20")
+        );
+        assert_eq!(
+            option_value(&profile.battery, "charge_stop_threshold"),
+            Some("80")
+        );
+        assert_eq!(
+            option_value(&profile.hermes, "gsp_power_mode"),
+            Some("performance")
+        );
+        assert_eq!(option_value(&profile.hermes, "cmd_ring_size"), Some("4096"));
     }
 
     #[test]
