@@ -38,6 +38,10 @@ if command -v gfortran >/dev/null 2>&1; then
         formal/fortran/tuned_instances.f90 \
         tuned-instances-check \
         "Fortran instance ownership model"
+    run_fortran_model \
+        formal/fortran/tuned_verification.f90 \
+        tuned-verification-check \
+        "Fortran verification policy model"
 else
     echo "Fortran models: skipped (gfortran not found)" >&2
     missing=1
@@ -46,7 +50,8 @@ fi
 if command -v idris2 >/dev/null 2>&1; then
     idris2 --check formal/idris2/TunedProfile.idr
     idris2 --check formal/idris2/TunedInstances.idr
-    echo "Idris profile and instance models: passed"
+    idris2 --check formal/idris2/TunedVerification.idr
+    echo "Idris profile, instance, and verification models: passed"
 else
     echo "Idris models: skipped (idris2 not found)" >&2
     missing=1
@@ -55,7 +60,8 @@ fi
 if command -v agda >/dev/null 2>&1; then
     agda --safe -i formal/agda formal/agda/TunedRollback.agda
     agda --safe -i formal/agda formal/agda/TunedInstances.agda
-    echo "Agda rollback and instance proofs: passed"
+    agda --safe -i formal/agda formal/agda/TunedVerification.agda
+    echo "Agda rollback, instance, and verification proofs: passed"
 else
     echo "Agda proofs: skipped (agda not found)" >&2
     missing=1
