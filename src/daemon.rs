@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -70,20 +70,22 @@ impl Daemon {
             }
             Err(error) => {
                 warn!("Failed to apply startup profile '{profile_name}': {error}");
-                *self.running.lock().await = true;
-                Ok(true)
+                *self.running.lock().await = false;
+                Ok(false)
             }
         }
     }
 
     pub async fn stop(&self, rollback: bool) -> bool {
+        let mut success = true;
         if rollback && config::rollback_on_exit() {
             if let Err(error) = self.recover_previous_state().await {
                 warn!("Failed to rollback on stop: {error}");
+                success = false;
             }
         }
         *self.running.lock().await = false;
-        true
+        success
     }
 
     pub async fn is_running(&self) -> bool {
@@ -159,21 +161,32 @@ impl Daemon {
     }
 
     pub async fn disable(&self) -> bool {
-        let _ = self.stop(true).await;
-        if let Err(error) =
-            std::fs::write(config::resolve_path(config::ACTIVE_PROFILE_FILE), b"")
-        {
-            warn!("Failed to clear active profile: {error}");
-        }
+        let stopped = self.stop(true).await;
+        let cleared = match std::fs::write(config::resolve_path(config::ACTIVE_PROFILE_FILE), b"") {
+            Ok(()) => true,
+            Err(error) => {
+                warn!("Failed to clear active profile: {error}");
+                false
+            }
+        };
         *self.active_profile.lock().await = String::new();
-        true
+        stopped && cleared
     }
 
     async fn apply_profile_data(&self, profile: Profile) -> Result<()> {
         let rollback = self.rollback.clone();
         run_blocking(move || {
             rollback.restore_all()?;
-            tuning::apply_profile(&rollback, &profile)
+            if let Err(error) = tuning::apply_profile(&rollback, &profile) {
+                let rollback_result = rollback.restore_all();
+                return match rollback_result {
+                    Ok(()) => Err(error),
+                    Err(rollback_error) => Err(anyhow::anyhow!(
+                        "{error}; rollback after failed apply also failed: {rollback_error}"
+                    )),
+                };
+            }
+            Ok(())
         })
     }
 }
