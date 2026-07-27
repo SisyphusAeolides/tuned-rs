@@ -1,15 +1,15 @@
 [Unit]
-Description=PPD-to-TuneD API Translation Daemon (Rust)
-Requires=tuned-rs.service
-After=tuned-rs.service
+Description=PPD-to-TuneD API Translation Daemon
+Requires=tuned.service
+After=tuned.service
 Before=multi-user.target display-manager.target
-Conflicts=tuned-ppd.service power-profiles-daemon.service
+Conflicts=power-profiles-daemon.service
 
 [Service]
 Type=dbus
 BusName=org.freedesktop.UPower.PowerProfiles
 BusName=net.hadess.PowerProfiles
-ExecStart=/usr/bin/tuned-rs-ppd
+ExecStart=/usr/sbin/tuned-ppd
 Restart=on-failure
 RestartSec=2
 
