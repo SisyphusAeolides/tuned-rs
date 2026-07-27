@@ -1,5 +1,6 @@
 PREFIX ?= /usr
 BINDIR ?= $(PREFIX)/bin
+SBINDIR ?= $(PREFIX)/sbin
 SYSTEMDUNITDIR ?= /usr/lib/systemd/system
 DBUSCONFDIR ?= /usr/share/dbus-1/system.d
 DBUSSERVICEDIR ?= /usr/share/dbus-1/system-services
@@ -9,7 +10,7 @@ MANDIR ?= /usr/share/man
 ETCTUNEDDIR ?= /etc/tuned
 PROFILEDIR ?= /usr/lib/tuned/profiles
 
-.PHONY: all build test check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm
+.PHONY: all build test check packaging-check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm
 
 all: build
 
@@ -29,12 +30,26 @@ srpm: tarball vendor
 build:
 	cargo build --locked --release
 
-check:
-	cargo check --locked
-	cargo clippy --locked -- -D warnings
+check: packaging-check
+	cargo fmt --all -- --check
+	cargo check --locked --all-targets
+	cargo clippy --locked --all-targets -- -D warnings
+
+packaging-check:
+	grep -q '^name = "tuned-adm"' Cargo.toml
+	grep -Eq '^Provides: +tuned( |%)' tuned-rs.spec
+	grep -Eq '^Obsoletes: +tuned( |<)' tuned-rs.spec
+	grep -Eq '^Provides: +tuned-ppd( |%)' tuned-rs.spec
+	grep -Eq '^Obsoletes: +tuned-ppd( |<)' tuned-rs.spec
+	grep -q '%{_sbindir}/tuned-adm' tuned-rs.spec
+	grep -q '%{_unitdir}/tuned.service' tuned-rs.spec
+	grep -q 'ExecStart=/usr/sbin/tuned' packaging/tuned-rs.service
+	! grep -q 'Conflicts=.*tuned.service' packaging/tuned-rs.service
+	test -f packaging/com.redhat.tuned.service
+	test -f packaging/tuned-adm.8
 
 test:
-	cargo test --locked
+	cargo test --locked --all-targets
 	$(MAKE) proofs
 
 proofs:
@@ -47,11 +62,15 @@ install: build install-bin install-data
 
 install-bin:
 	install -D -m 0755 target/release/tuned-rs $(DESTDIR)$(BINDIR)/tuned-rs
+	install -D -m 0755 target/release/tuned-rs $(DESTDIR)$(SBINDIR)/tuned
+	install -D -m 0755 target/release/tuned-adm $(DESTDIR)$(SBINDIR)/tuned-adm
 	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(BINDIR)/tuned-rs-ppd
 
 install-data: install-config install-profiles
 	install -D -m 0644 packaging/tuned-rs.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-rs.service
+	ln -sfn tuned-rs.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned.service
 	install -D -m 0644 packaging/com.redhat.tuned.conf $(DESTDIR)$(DBUSCONFDIR)/com.redhat.tuned.conf
+	install -D -m 0644 packaging/com.redhat.tuned.service $(DESTDIR)$(DBUSSERVICEDIR)/com.redhat.tuned.service
 	install -D -m 0644 packaging/com.redhat.tuned.policy $(DESTDIR)$(POLKITDIR)/com.redhat.tuned.policy
 	install -D -m 0644 README.md $(DESTDIR)$(DOCDIR)/README.md
 	install -D -m 0644 packaging/tuned-rs-ppd.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-rs-ppd.service
@@ -61,6 +80,7 @@ install-data: install-config install-profiles
 	install -D -m 0644 packaging/org.freedesktop.UPower.PowerProfiles.policy $(DESTDIR)$(POLKITDIR)/org.freedesktop.UPower.PowerProfiles.policy
 	install -D -m 0644 packaging/net.hadess.PowerProfiles.policy $(DESTDIR)$(POLKITDIR)/net.hadess.PowerProfiles.policy
 	install -D -m 0644 packaging/tuned-rs.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs.8
+	install -D -m 0644 packaging/tuned-adm.8 $(DESTDIR)$(MANDIR)/man8/tuned-adm.8
 	install -D -m 0644 packaging/tuned-rs-ppd.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs-ppd.8
 
 install-config:
