@@ -5,7 +5,9 @@ pub mod disk;
 pub mod gpu;
 pub mod hermes;
 pub mod modifiers;
+pub mod modules;
 pub mod network;
+pub mod script;
 pub mod storage;
 pub mod sysctl;
 pub mod sysfs;
@@ -13,11 +15,15 @@ pub mod thermal;
 pub mod vm;
 
 use anyhow::Result;
+use tracing::warn;
 
 use crate::profile::{DiskSettings, NetworkSettings, Profile, VmSettings};
+use crate::profile_units::ProfileUnit;
 use crate::rollback::Rollback;
 
 pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
+    apply_module_units(rollback, profile)?;
+
     if let Some(governor) = &profile.cpu.governor {
         cpu::apply_governor(rollback, governor)?;
     }
@@ -68,7 +74,73 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
     battery::apply_battery_options(rollback, &profile.battery)?;
     hermes::apply_hermes_options(rollback, &profile.hermes)?;
 
+    apply_script_units(rollback, profile)?;
+    report_preserved_but_unimplemented_units(profile);
     Ok(())
+}
+
+fn apply_module_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
+    for unit in profile.units_of_type("modules").filter(|unit| unit.enabled) {
+        if unit_is_conditional(unit) {
+            warn!(
+                "Conditional modules unit '{}' is preserved but awaits condition evaluation",
+                unit.name
+            );
+            continue;
+        }
+        modules::apply_options(rollback, &unit.options)?;
+    }
+    Ok(())
+}
+
+fn apply_script_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
+    for unit in profile.units_of_type("script").filter(|unit| unit.enabled) {
+        if unit_is_conditional(unit) {
+            warn!(
+                "Conditional script unit '{}' is preserved but awaits condition evaluation",
+                unit.name
+            );
+            continue;
+        }
+        if let Some(scripts) = unit.option("script") {
+            script::apply_scripts(rollback, scripts)?;
+        }
+    }
+    Ok(())
+}
+
+fn report_preserved_but_unimplemented_units(profile: &Profile) {
+    const IMPLEMENTED: &[&str] = &[
+        "variables",
+        "modules",
+        "cpu",
+        "sysctl",
+        "vm",
+        "disk",
+        "acpi",
+        "network",
+        "net",
+        "gpu",
+        "storage",
+        "thermal",
+        "battery",
+        "hermes",
+        "script",
+    ];
+    for unit in profile.units.iter().filter(|unit| unit.enabled) {
+        if !IMPLEMENTED.contains(&unit.plugin_type.as_str()) {
+            warn!(
+                "Profile unit '{}' uses preserved but unimplemented plugin type '{}'",
+                unit.name, unit.plugin_type
+            );
+        }
+    }
+}
+
+fn unit_is_conditional(unit: &ProfileUnit) -> bool {
+    unit.devices_udev_regex.is_some()
+        || unit.cpuinfo_regex.is_some()
+        || unit.uname_regex.is_some()
 }
 
 fn vm_option_pairs(vm: &VmSettings) -> Vec<(String, String)> {
