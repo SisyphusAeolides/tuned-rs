@@ -45,13 +45,13 @@ make install-bin DESTDIR=%{buildroot}
 make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %post
-%systemd_post tuned.service tuned-rs.service tuned-rs-ppd.service
+%systemd_post tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
 
 %preun
-%systemd_preun tuned.service tuned-rs.service tuned-rs-ppd.service
+%systemd_preun tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
 
 %postun
-%systemd_postun_with_restart tuned.service tuned-rs.service tuned-rs-ppd.service
+%systemd_postun_with_restart tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
 
 %check
 CARGO_NET_OFFLINE=true cargo test --frozen --all-targets
@@ -65,11 +65,13 @@ make packaging-check
 %{_bindir}/tuned-rs-ppd
 %{_sbindir}/tuned
 %{_sbindir}/tuned-adm
+%{_sbindir}/tuned-ppd
 %{_mandir}/man8/tuned-rs.8*
 %{_mandir}/man8/tuned-adm.8*
 %{_mandir}/man8/tuned-rs-ppd.8*
 %{_unitdir}/tuned.service
 %{_unitdir}/tuned-rs.service
+%{_unitdir}/tuned-ppd.service
 %{_unitdir}/tuned-rs-ppd.service
 %{_datadir}/dbus-1/system.d/com.redhat.tuned.conf
 %{_datadir}/dbus-1/system-services/com.redhat.tuned.service
@@ -88,7 +90,7 @@ make packaging-check
 %changelog
 * Mon Jul 27 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.1.0-3
 - Add the TuneD-compatible tuned-adm administration client
-- Install classic tuned command, service, and D-Bus activation identities
+- Install classic tuned, tuned-ppd, service, and D-Bus activation identities
 - Replace tuned and tuned-ppd through versioned RPM capabilities
 
 * Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 0.1.0-2
