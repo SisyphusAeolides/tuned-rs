@@ -14,6 +14,7 @@ pub mod rollback;
 pub mod socket_signals;
 pub mod telemetry;
 pub mod tuning;
+pub mod verification;
 
 pub mod ppd;
 
