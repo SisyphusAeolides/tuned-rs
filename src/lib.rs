@@ -3,6 +3,7 @@ pub mod daemon;
 pub mod dynamic;
 pub mod engine;
 pub mod hal;
+pub mod instances;
 pub mod ipc;
 pub mod monitor;
 pub mod plugins;
