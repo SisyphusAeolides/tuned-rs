@@ -1,16 +1,18 @@
 use anyhow::{Context, Result};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
-use tuned_rs::{config, daemon, ipc, monitor, profile, rollback, DaemonEvent};
+use tuned_rs::{
+    config, daemon, ipc, log_capture, monitor, profile, rollback, DaemonEvent,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .finish();
+    let subscriber = tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(tracing_subscriber::fmt::layer())
+        .with(log_capture::CaptureLayer::new(log_capture::global_store()));
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
     info!("Starting tuned-rs daemon...");
