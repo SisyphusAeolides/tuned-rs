@@ -1,4 +1,5 @@
 pub mod acpi;
+pub mod audio;
 pub mod battery;
 pub mod cpu;
 pub mod disk;
@@ -7,11 +8,13 @@ pub mod hermes;
 pub mod modifiers;
 pub mod modules;
 pub mod network;
+pub mod scsi_host;
 pub mod script;
 pub mod storage;
 pub mod sysctl;
 pub mod sysfs;
 pub mod thermal;
+pub mod video;
 pub mod vm;
 
 use anyhow::Result;
@@ -57,6 +60,7 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
     }
 
     vm::apply_options(rollback, &vm_option_pairs(&profile.vm))?;
+    apply_scsi_host_units(rollback, profile)?;
     disk::apply_options(
         rollback,
         profile.disk.devices.as_deref(),
@@ -68,6 +72,8 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
     }
 
     network::apply_tcp_options(rollback, &network_option_pairs(&profile.network))?;
+    apply_audio_units(rollback, profile)?;
+    apply_video_units(rollback, profile)?;
     gpu::apply_gpu_options(rollback, &profile.gpu)?;
     storage::apply_storage_options(rollback, &profile.storage)?;
     thermal::apply_thermal_options(rollback, &profile.thermal)?;
@@ -81,11 +87,7 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
 
 fn apply_module_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
     for unit in profile.units_of_type("modules").filter(|unit| unit.enabled) {
-        if unit_is_conditional(unit) {
-            warn!(
-                "Conditional modules unit '{}' is preserved but awaits condition evaluation",
-                unit.name
-            );
+        if skip_conditional_unit(unit) {
             continue;
         }
         modules::apply_options(rollback, &unit.options)?;
@@ -93,13 +95,42 @@ fn apply_module_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
     Ok(())
 }
 
+fn apply_audio_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
+    for unit in profile.units_of_type("audio").filter(|unit| unit.enabled) {
+        if skip_conditional_unit(unit) {
+            continue;
+        }
+        audio::apply_options(rollback, &unit.options)?;
+    }
+    Ok(())
+}
+
+fn apply_video_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
+    for unit in profile.units_of_type("video").filter(|unit| unit.enabled) {
+        if skip_conditional_unit(unit) {
+            continue;
+        }
+        video::apply_options(rollback, &unit.options)?;
+    }
+    Ok(())
+}
+
+fn apply_scsi_host_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
+    for unit in profile
+        .units_of_type("scsi_host")
+        .filter(|unit| unit.enabled)
+    {
+        if skip_conditional_unit(unit) {
+            continue;
+        }
+        scsi_host::apply_options(rollback, &unit.devices, &unit.options)?;
+    }
+    Ok(())
+}
+
 fn apply_script_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
     for unit in profile.units_of_type("script").filter(|unit| unit.enabled) {
-        if unit_is_conditional(unit) {
-            warn!(
-                "Conditional script unit '{}' is preserved but awaits condition evaluation",
-                unit.name
-            );
+        if skip_conditional_unit(unit) {
             continue;
         }
         if let Some(scripts) = unit.option("script") {
@@ -107,6 +138,18 @@ fn apply_script_units(rollback: &Rollback, profile: &Profile) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn skip_conditional_unit(unit: &ProfileUnit) -> bool {
+    if unit_is_conditional(unit) {
+        warn!(
+            "Conditional unit '{}' of type '{}' is preserved but awaits condition evaluation",
+            unit.name, unit.plugin_type
+        );
+        true
+    } else {
+        false
+    }
 }
 
 fn report_preserved_but_unimplemented_units(profile: &Profile) {
@@ -120,6 +163,9 @@ fn report_preserved_but_unimplemented_units(profile: &Profile) {
         "acpi",
         "network",
         "net",
+        "audio",
+        "video",
+        "scsi_host",
         "gpu",
         "storage",
         "thermal",
