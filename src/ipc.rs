@@ -7,6 +7,8 @@ use zbus::{connection::Builder, interface, Connection, SignalContext};
 
 use crate::config;
 use crate::daemon::Daemon;
+use crate::engine;
+use crate::plugins;
 use crate::polkit::{self, Polkit};
 
 pub struct TunedController {
@@ -167,8 +169,10 @@ impl TunedController {
         profile_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> (bool, String, String, String) {
-        if !self.authorized(&header, "profile_info").await {
-            return (false, String::new(), String::new(), "Unauthorized".to_string());
+        if !self.authorized(&header, "profile_info").await
+            || !engine::validate_tuned_argument(profile_name)
+        {
+            return (false, String::new(), String::new(), String::new());
         }
         self.daemon.profile_info(profile_name).await
     }
@@ -191,7 +195,13 @@ impl TunedController {
 
     #[zbus(name = "verify_profile_ignore_missing")]
     async fn verify_profile_ignore_missing(&self, #[zbus(header)] header: Header<'_>) -> bool {
-        self.verify_profile(header).await
+        if !self
+            .authorized(&header, "verify_profile_ignore_missing")
+            .await
+        {
+            return false;
+        }
+        !self.daemon.active_profile().await.is_empty()
     }
 
     #[zbus(name = "log_capture_start")]
@@ -223,70 +233,50 @@ impl TunedController {
         if !self.authorized(&header, "get_all_plugins").await {
             return HashMap::new();
         }
-        HashMap::from([
-            (
-                "cpu".to_string(),
-                HashMap::from([
-                    ("governor".to_string(), String::new()),
-                    (
-                        "energy_performance_preference".to_string(),
-                        String::new(),
-                    ),
-                ]),
-            ),
-            (
-                "sysctl".to_string(),
-                HashMap::from([("".to_string(), String::new())]),
-            ),
-            (
-                "vm".to_string(),
-                HashMap::from([("dirty_bytes".to_string(), String::new())]),
-            ),
-            (
-                "disk".to_string(),
-                HashMap::from([
-                    ("readahead".to_string(), String::new()),
-                    ("elevator".to_string(), String::new()),
-                ]),
-            ),
-            (
-                "acpi".to_string(),
-                HashMap::from([("platform_profile".to_string(), String::new())]),
-            ),
-        ])
+        plugins::all_options()
     }
 
     #[zbus(name = "get_plugin_documentation")]
     async fn get_plugin_documentation(
         &self,
-        _plugin_name: &str,
+        plugin_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> String {
-        if !self.authorized(&header, "get_plugin_documentation").await {
+        if !self
+            .authorized(&header, "get_plugin_documentation")
+            .await
+            || !engine::validate_tuned_argument(plugin_name)
+        {
             return String::new();
         }
-        String::new()
+        plugins::documentation(plugin_name)
     }
 
     #[zbus(name = "get_plugin_hints")]
     async fn get_plugin_hints(
         &self,
-        _plugin_name: &str,
+        plugin_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> HashMap<String, String> {
-        if !self.authorized(&header, "get_plugin_hints").await {
+        if !self.authorized(&header, "get_plugin_hints").await
+            || !engine::validate_tuned_argument(plugin_name)
+        {
             return HashMap::new();
         }
-        HashMap::new()
+        plugins::hints(plugin_name)
     }
 
     #[zbus(name = "register_socket_signal_path")]
     async fn register_socket_signal_path(
         &self,
-        _path: &str,
+        path: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> bool {
-        if !self.authorized(&header, "register_socket_signal_path").await {
+        if !self
+            .authorized(&header, "register_socket_signal_path")
+            .await
+            || !engine::validate_tuned_argument(path)
+        {
             return false;
         }
         false
@@ -295,24 +285,40 @@ impl TunedController {
     #[zbus(name = "instance_acquire_devices")]
     async fn instance_acquire_devices(
         &self,
-        _devices: &str,
-        _instance_name: &str,
+        devices: &str,
+        instance_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> (bool, String) {
         if !self.authorized(&header, "instance_acquire_devices").await {
             return polkit::unauthorized_pair();
         }
-        (false, "Not supported".to_string())
+        if !engine::validate_tuned_argument(devices) {
+            return (false, "Invalid devices".to_string());
+        }
+        if !engine::validate_tuned_argument(instance_name) {
+            return (false, "Invalid instance_name".to_string());
+        }
+        (false, format!("Instance '{instance_name}' not found"))
     }
 
     #[zbus(name = "get_instances")]
     async fn get_instances(
         &self,
-        _plugin_name: &str,
+        plugin_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> (bool, String, Vec<(String, String)>) {
         if !self.authorized(&header, "get_instances").await {
             return (false, "Unauthorized".to_string(), Vec::new());
+        }
+        if !engine::validate_tuned_argument(plugin_name) {
+            return (false, "Invalid plugin_name".to_string(), Vec::new());
+        }
+        if !plugin_name.is_empty() && plugins::descriptor(plugin_name).is_none() {
+            return (
+                false,
+                format!("Plugin '{plugin_name}' does not exist"),
+                Vec::new(),
+            );
         }
         (true, "OK".to_string(), Vec::new())
     }
@@ -320,39 +326,69 @@ impl TunedController {
     #[zbus(name = "instance_get_devices")]
     async fn instance_get_devices(
         &self,
-        _instance_name: &str,
+        instance_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> (bool, String, Vec<String>) {
         if !self.authorized(&header, "instance_get_devices").await {
             return (false, "Unauthorized".to_string(), Vec::new());
         }
-        (false, "Not supported".to_string(), Vec::new())
+        if !engine::validate_tuned_argument(instance_name) {
+            return (false, "Invalid instance_name".to_string(), Vec::new());
+        }
+        (
+            false,
+            format!("Instance '{instance_name}' not found"),
+            Vec::new(),
+        )
     }
 
     #[zbus(name = "instance_create")]
     async fn instance_create(
         &self,
-        _plugin_name: &str,
-        _instance_name: &str,
-        _options: HashMap<String, String>,
+        plugin_name: &str,
+        instance_name: &str,
+        options: HashMap<String, String>,
         #[zbus(header)] header: Header<'_>,
     ) -> (bool, String) {
         if !self.authorized(&header, "instance_create").await {
             return polkit::unauthorized_pair();
         }
-        (false, "Not supported".to_string())
+        if !engine::validate_tuned_argument(plugin_name) {
+            return (false, "Invalid plugin_name".to_string());
+        }
+        if !engine::validate_tuned_argument(instance_name) {
+            return (false, "Invalid instance_name".to_string());
+        }
+        if options.iter().any(|(key, value)| {
+            !engine::validate_tuned_argument(key) || !engine::validate_tuned_argument(value)
+        }) {
+            return (false, "Invalid options".to_string());
+        }
+        let Some(plugin) = plugins::descriptor(plugin_name) else {
+            return (false, format!("Plugin '{plugin_name}' not found"));
+        };
+        (
+            false,
+            format!(
+                "Plugin '{}' does not support hotplugging or dynamic instances.",
+                plugin.name
+            ),
+        )
     }
 
     #[zbus(name = "instance_destroy")]
     async fn instance_destroy(
         &self,
-        _instance_name: &str,
+        instance_name: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> (bool, String) {
         if !self.authorized(&header, "instance_destroy").await {
             return polkit::unauthorized_pair();
         }
-        (false, "Not supported".to_string())
+        if !engine::validate_tuned_argument(instance_name) {
+            return (false, "Invalid instance_name".to_string());
+        }
+        (false, format!("Instance '{instance_name}' not found"))
     }
 }
 
