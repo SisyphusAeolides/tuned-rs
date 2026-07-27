@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
@@ -5,6 +6,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::config;
+use crate::instances::InstanceRegistry;
 use crate::profile::{self, Profile, ProfileCatalog};
 use crate::rollback::Rollback;
 use crate::tuning;
@@ -15,6 +17,7 @@ pub struct Daemon {
     active_profile: Mutex<String>,
     running: Mutex<bool>,
     manual: Mutex<bool>,
+    instances: Mutex<InstanceRegistry>,
 }
 
 impl Daemon {
@@ -25,6 +28,7 @@ impl Daemon {
             active_profile: Mutex::new(String::new()),
             running: Mutex::new(false),
             manual: Mutex::new(true),
+            instances: Mutex::new(InstanceRegistry::default()),
         })
     }
 
@@ -171,6 +175,41 @@ impl Daemon {
         };
         *self.active_profile.lock().await = String::new();
         stopped && cleared
+    }
+
+    pub async fn instance_create(
+        &self,
+        plugin_name: &str,
+        instance_name: &str,
+        options: HashMap<String, String>,
+    ) -> (bool, String) {
+        self.instances
+            .lock()
+            .await
+            .create(plugin_name, instance_name, options)
+    }
+
+    pub async fn instance_acquire_devices(
+        &self,
+        devices: &str,
+        instance_name: &str,
+    ) -> (bool, String) {
+        self.instances
+            .lock()
+            .await
+            .acquire_devices(devices, instance_name)
+    }
+
+    pub async fn get_instances(&self, plugin_name: &str) -> Vec<(String, String)> {
+        self.instances.lock().await.list(plugin_name)
+    }
+
+    pub async fn instance_get_devices(&self, instance_name: &str) -> Option<Vec<String>> {
+        self.instances.lock().await.devices(instance_name)
+    }
+
+    pub async fn instance_destroy(&self, instance_name: &str) -> (bool, String) {
+        self.instances.lock().await.destroy(instance_name)
     }
 
     async fn apply_profile_data(&self, profile: Profile) -> Result<()> {
