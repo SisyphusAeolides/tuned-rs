@@ -78,24 +78,16 @@ trait Tuned {
 enum Command {
     Help,
     Version,
-    List {
-        choice: ListChoice,
-        verbose: bool,
-    },
+    List { choice: ListChoice, verbose: bool },
     Active,
     Off,
     Profile(Vec<String>),
     ProfileInfo(String),
     Recommend,
-    Verify {
-        ignore_missing: bool,
-    },
+    Verify { ignore_missing: bool },
     AutoProfile,
     ProfileMode,
-    InstanceAcquireDevices {
-        devices: String,
-        instance: String,
-    },
+    InstanceAcquireDevices { devices: String, instance: String },
     GetInstances(String),
     InstanceGetDevices(String),
 }
@@ -198,9 +190,13 @@ async fn run(command: Command) -> Result<bool> {
                 tuned.verify_profile().await?
             };
             if verified {
-                println!("Verification succeeded, current system settings match the preset profile.");
+                println!(
+                    "Verification succeeded, current system settings match the preset profile."
+                );
             } else {
-                println!("Verification failed, current system settings differ from the preset profile.");
+                println!(
+                    "Verification failed, current system settings differ from the preset profile."
+                );
                 println!("You can mostly fix this by restarting the TuneD daemon, e.g.:");
                 println!("  systemctl restart tuned");
                 println!("or");
@@ -341,7 +337,12 @@ fn parse_args(args: impl Iterator<Item = String>) -> std::result::Result<Command
                 let value = args
                     .pop_front()
                     .ok_or_else(|| "--timeout requires a positive integer".to_string())?;
-                if value.parse::<u64>().ok().filter(|value| *value > 0).is_none() {
+                if value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .is_none()
+                {
                     return Err(format!("{value} has to be > 0"));
                 }
             }
@@ -353,7 +354,12 @@ fn parse_args(args: impl Iterator<Item = String>) -> std::result::Result<Command
             }
             _ if argument.starts_with("--timeout=") => {
                 let value = argument.trim_start_matches("--timeout=");
-                if value.parse::<u64>().ok().filter(|value| *value > 0).is_none() {
+                if value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .is_none()
+                {
                     return Err(format!("{value} has to be > 0"));
                 }
                 args.pop_front();
@@ -376,7 +382,9 @@ fn parse_args(args: impl Iterator<Item = String>) -> std::result::Result<Command
         "profile" => Ok(Command::Profile(args.into_iter().collect())),
         "profile_info" => match args.len() {
             0 => Ok(Command::ProfileInfo(String::new())),
-            1 => Ok(Command::ProfileInfo(args.pop_front().expect("length checked"))),
+            1 => Ok(Command::ProfileInfo(
+                args.pop_front().expect("length checked"),
+            )),
             _ => Err("profile_info accepts at most one profile".to_string()),
         },
         "recommend" => expect_empty(args, Command::Recommend),
@@ -394,7 +402,9 @@ fn parse_args(args: impl Iterator<Item = String>) -> std::result::Result<Command
         }
         "get_instances" => match args.len() {
             0 => Ok(Command::GetInstances(String::new())),
-            1 => Ok(Command::GetInstances(args.pop_front().expect("length checked"))),
+            1 => Ok(Command::GetInstances(
+                args.pop_front().expect("length checked"),
+            )),
             _ => Err("get_instances accepts at most one plugin name".to_string()),
         },
         "instance_get_devices" => {
@@ -434,10 +444,7 @@ fn parse_verify(mut args: VecDeque<String>) -> std::result::Result<Command, Stri
     Ok(Command::Verify { ignore_missing })
 }
 
-fn expect_empty(
-    args: VecDeque<String>,
-    command: Command,
-) -> std::result::Result<Command, String> {
+fn expect_empty(args: VecDeque<String>, command: Command) -> std::result::Result<Command, String> {
     if args.is_empty() {
         Ok(command)
     } else {

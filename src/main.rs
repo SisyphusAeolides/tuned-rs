@@ -3,9 +3,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
-use tuned_rs::{
-    config, daemon, ipc, log_capture, monitor, profile, rollback, DaemonEvent,
-};
+use tuned_rs::{config, daemon, ipc, log_capture, monitor, profile, rollback, DaemonEvent};
 
 #[tokio::main]
 async fn main() -> Result<()> {

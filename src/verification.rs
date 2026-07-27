@@ -35,9 +35,9 @@ pub struct VerificationReport {
 
 impl VerificationReport {
     pub fn passes(&self, ignore_missing: bool) -> bool {
-        self.issues.iter().all(|issue| {
-            ignore_missing && issue.kind == VerificationIssueKind::Missing
-        })
+        self.issues
+            .iter()
+            .all(|issue| ignore_missing && issue.kind == VerificationIssueKind::Missing)
     }
 
     pub fn matched(&self) -> usize {
@@ -121,8 +121,9 @@ impl Verifier {
 
     fn verify_cpu(&self, profile: &Profile, report: &mut VerificationReport) {
         let policies = matching_children(&self.path("/sys/devices/system/cpu/cpufreq"), |name| {
-            name.strip_prefix("policy")
-                .is_some_and(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
+            name.strip_prefix("policy").is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+            })
         });
 
         for (option, expected, leaf) in [
@@ -141,7 +142,12 @@ impl Verifier {
                 continue;
             };
             if policies.is_empty() {
-                report.missing("cpu", option, self.path("/sys/devices/system/cpu/cpufreq"), expected);
+                report.missing(
+                    "cpu",
+                    option,
+                    self.path("/sys/devices/system/cpu/cpufreq"),
+                    expected,
+                );
                 continue;
             }
             for policy in &policies {
@@ -303,13 +309,7 @@ impl Verifier {
                         self.path(&format!("/sys/block/{device}/queue/read_ahead_kb")),
                         &expected,
                     ),
-                    Err(detail) => report.unsupported(
-                        "disk",
-                        "readahead",
-                        &device,
-                        raw,
-                        detail,
-                    ),
+                    Err(detail) => report.unsupported("disk", "readahead", &device, raw, detail),
                 }
             }
         }
@@ -382,12 +382,9 @@ impl Verifier {
                         Some(target) => {
                             self.check_path(report, "gpu", option, target.clone(), expected)
                         }
-                        None => report.missing(
-                            "gpu",
-                            option,
-                            self.path("/sys/class/drm"),
-                            expected,
-                        ),
+                        None => {
+                            report.missing("gpu", option, self.path("/sys/class/drm"), expected)
+                        }
                     }
                 }
                 "nvidia_power_limit" => {
@@ -417,13 +414,7 @@ impl Verifier {
                     expected,
                     "the driver does not expose a stable readback for locked application clocks",
                 ),
-                other => report.unsupported(
-                    "gpu",
-                    other,
-                    "gpu",
-                    expected,
-                    "unknown GPU option",
-                ),
+                other => report.unsupported("gpu", other, "gpu", expected, "unknown GPU option"),
             }
         }
     }
@@ -515,19 +506,21 @@ impl Verifier {
                     self.check_targets(report, "storage", option, expected, targets);
                 }
                 "io_scheduler" => {
-                    let targets = matching_children(&self.path("/sys/block"), tunable_storage_device)
-                        .into_iter()
-                        .map(|path| path.join("queue/scheduler"))
-                        .filter(|path| path.exists())
-                        .collect::<Vec<_>>();
+                    let targets =
+                        matching_children(&self.path("/sys/block"), tunable_storage_device)
+                            .into_iter()
+                            .map(|path| path.join("queue/scheduler"))
+                            .filter(|path| path.exists())
+                            .collect::<Vec<_>>();
                     self.check_targets(report, "storage", option, expected, targets);
                 }
                 "nr_requests" => {
-                    let targets = matching_children(&self.path("/sys/block"), tunable_storage_device)
-                        .into_iter()
-                        .map(|path| path.join("queue/nr_requests"))
-                        .filter(|path| path.exists())
-                        .collect::<Vec<_>>();
+                    let targets =
+                        matching_children(&self.path("/sys/block"), tunable_storage_device)
+                            .into_iter()
+                            .map(|path| path.join("queue/nr_requests"))
+                            .filter(|path| path.exists())
+                            .collect::<Vec<_>>();
                     self.check_targets(report, "storage", option, expected, targets);
                 }
                 "ssd_trim" => report.unsupported(
@@ -603,15 +596,10 @@ impl Verifier {
                         }
                     };
                     match target {
-                        Some(target) => {
-                            self.check_path(report, "thermal", option, target, mode)
+                        Some(target) => self.check_path(report, "thermal", option, target, mode),
+                        None => {
+                            report.missing("thermal", option, self.path("/sys/class/hwmon"), mode)
                         }
-                        None => report.missing(
-                            "thermal",
-                            option,
-                            self.path("/sys/class/hwmon"),
-                            mode,
-                        ),
                     }
                 }
                 "thermal_policy" => self.check_path(
@@ -718,12 +706,7 @@ impl Verifier {
                     let maximum = expected.parse::<usize>().unwrap_or(4).min(4);
                     let devices = matching_children(&self.path("/sys/class/hermes"), |_| true);
                     if devices.is_empty() {
-                        report.missing(
-                            "hermes",
-                            option,
-                            self.path("/sys/class/hermes"),
-                            expected,
-                        );
+                        report.missing("hermes", option, self.path("/sys/class/hermes"), expected);
                         continue;
                     }
                     let mut found = false;
@@ -739,12 +722,7 @@ impl Verifier {
                         }
                     }
                     if !found {
-                        report.missing(
-                            "hermes",
-                            option,
-                            self.path("/sys/class/hermes"),
-                            expected,
-                        );
+                        report.missing("hermes", option, self.path("/sys/class/hermes"), expected);
                     }
                 }
                 "gsp_power_mode" => {
@@ -778,13 +756,9 @@ impl Verifier {
                         runtime_pm,
                     );
                 }
-                other => report.unsupported(
-                    "hermes",
-                    other,
-                    "hermes",
-                    expected,
-                    "unknown Hermes option",
-                ),
+                other => {
+                    report.unsupported("hermes", other, "hermes", expected, "unknown Hermes option")
+                }
             }
         }
     }
@@ -951,16 +925,16 @@ fn matches_expected(expected: &str, actual: &str) -> bool {
             .map(str::trim)
             .filter(|candidate| !candidate.is_empty())
             .any(|candidate| normalize(candidate) == normalize(actual)),
-        AssignmentOp::Greater | AssignmentOp::GreaterEqual => compare_numeric(
-            &assignment.target,
-            actual,
-            |actual, target| actual >= target,
-        ),
-        AssignmentOp::Less | AssignmentOp::LessEqual => compare_numeric(
-            &assignment.target,
-            actual,
-            |actual, target| actual <= target,
-        ),
+        AssignmentOp::Greater | AssignmentOp::GreaterEqual => {
+            compare_numeric(&assignment.target, actual, |actual, target| {
+                actual >= target
+            })
+        }
+        AssignmentOp::Less | AssignmentOp::LessEqual => {
+            compare_numeric(&assignment.target, actual, |actual, target| {
+                actual <= target
+            })
+        }
     }
 }
 
@@ -1035,7 +1009,10 @@ fn matching_children(base: &Path, predicate: impl Fn(&str) -> bool) -> Vec<PathB
 fn matching_child_names(base: &Path, predicate: impl Fn(&str) -> bool) -> Vec<String> {
     matching_children(base, predicate)
         .into_iter()
-        .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .filter_map(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .collect()
 }
 
@@ -1083,7 +1060,10 @@ mod tests {
 
     #[test]
     fn assignment_and_active_choice_comparisons_are_semantic() {
-        assert!(matches_expected("schedutil|performance", "[performance] powersave"));
+        assert!(matches_expected(
+            "schedutil|performance",
+            "[performance] powersave"
+        ));
         assert!(matches_expected(">=4096", "8192"));
         assert!(!matches_expected(">=4096", "2048"));
         assert!(matches_expected("<100", "80"));
@@ -1140,11 +1120,7 @@ mod tests {
             "/sys/firmware/acpi/platform_profile",
             "balanced\n",
         );
-        write(
-            root.path(),
-            "/proc/sys/net/ipv4/tcp_window_scaling",
-            "1\n",
-        );
+        write(root.path(), "/proc/sys/net/ipv4/tcp_window_scaling", "1\n");
 
         let mut profile = Profile::default();
         profile.cpu.governor = Some("schedutil|performance".to_string());

@@ -252,9 +252,8 @@ impl Daemon {
         let registry = self.signal_paths.lock().await.clone();
         let profile_name = profile_name.to_string();
         let error = error.to_string();
-        let failures = run_blocking(move || {
-            Ok(registry.emit_profile_changed(&profile_name, result, &error))
-        });
+        let failures =
+            run_blocking(move || Ok(registry.emit_profile_changed(&profile_name, result, &error)));
         match failures {
             Ok(failures) => {
                 for (path, error) in failures {

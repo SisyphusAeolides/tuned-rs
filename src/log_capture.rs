@@ -62,12 +62,7 @@ impl CaptureStore {
         let now = Instant::now();
         let numeric_level = python_log_level(level);
         let mut sessions = self.sessions.lock().unwrap();
-        sessions.retain(|_, session| {
-            session
-                .expires
-                .map(|expires| expires > now)
-                .unwrap_or(true)
-        });
+        sessions.retain(|_, session| session.expires.map(|expires| expires > now).unwrap_or(true));
 
         for session in sessions.values_mut() {
             if numeric_level < session.minimum_level || session.truncated {

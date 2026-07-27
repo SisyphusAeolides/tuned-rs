@@ -39,10 +39,11 @@ impl InstanceRegistry {
             return (false, format!("Instance '{instance_name}' already exists"));
         }
 
-        let devices = match parse_device_list(options.get("devices").map(String::as_str).unwrap_or("")) {
-            Ok(devices) => devices,
-            Err(error) => return (false, error),
-        };
+        let devices =
+            match parse_device_list(options.get("devices").map(String::as_str).unwrap_or("")) {
+                Ok(devices) => devices,
+                Err(error) => return (false, error),
+            };
         let priority = match options.get("priority") {
             Some(value) => match value.parse::<i32>() {
                 Ok(priority) => priority,
@@ -103,7 +104,11 @@ impl InstanceRegistry {
             return (false, format!("Instance '{instance_name}' not found"));
         };
         for device in instance.devices {
-            if self.owners.get(&device).is_some_and(|owner| owner == instance_name) {
+            if self
+                .owners
+                .get(&device)
+                .is_some_and(|owner| owner == instance_name)
+            {
                 self.owners.remove(&device);
             }
         }
@@ -312,10 +317,7 @@ mod tests {
     fn destroy_releases_every_device() {
         let mut registry = InstanceRegistry::default();
         assert!(registry.create("cpu", "temporary", options("cpu0,cpu1")).0);
-        assert_eq!(
-            registry.destroy("temporary"),
-            (true, "OK".to_string())
-        );
+        assert_eq!(registry.destroy("temporary"), (true, "OK".to_string()));
         assert!(registry.list("").is_empty());
         assert!(registry.owners.is_empty());
         assert!(registry.invariant_holds());
