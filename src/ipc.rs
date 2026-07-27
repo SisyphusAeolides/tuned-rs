@@ -294,7 +294,9 @@ impl TunedController {
         if !engine::validate_tuned_argument(instance_name) {
             return (false, "Invalid instance_name".to_string());
         }
-        (false, format!("Instance '{instance_name}' not found"))
+        self.daemon
+            .instance_acquire_devices(devices, instance_name)
+            .await
     }
 
     #[zbus(name = "get_instances")]
@@ -316,7 +318,11 @@ impl TunedController {
                 Vec::new(),
             );
         }
-        (true, "OK".to_string(), Vec::new())
+        (
+            true,
+            "OK".to_string(),
+            self.daemon.get_instances(plugin_name).await,
+        )
     }
 
     #[zbus(name = "instance_get_devices")]
@@ -331,11 +337,14 @@ impl TunedController {
         if !engine::validate_tuned_argument(instance_name) {
             return (false, "Invalid instance_name".to_string(), Vec::new());
         }
-        (
-            false,
-            format!("Instance '{instance_name}' not found"),
-            Vec::new(),
-        )
+        match self.daemon.instance_get_devices(instance_name).await {
+            Some(devices) => (true, "OK".to_string(), devices),
+            None => (
+                false,
+                format!("Instance '{instance_name}' not found"),
+                Vec::new(),
+            ),
+        }
     }
 
     #[zbus(name = "instance_create")]
@@ -360,16 +369,9 @@ impl TunedController {
         }) {
             return (false, "Invalid options".to_string());
         }
-        let Some(plugin) = plugins::descriptor(plugin_name) else {
-            return (false, format!("Plugin '{plugin_name}' not found"));
-        };
-        (
-            false,
-            format!(
-                "Plugin '{}' does not support hotplugging or dynamic instances.",
-                plugin.name
-            ),
-        )
+        self.daemon
+            .instance_create(plugin_name, instance_name, options)
+            .await
     }
 
     #[zbus(name = "instance_destroy")]
@@ -384,7 +386,7 @@ impl TunedController {
         if !engine::validate_tuned_argument(instance_name) {
             return (false, "Invalid instance_name".to_string());
         }
-        (false, format!("Instance '{instance_name}' not found"))
+        self.daemon.instance_destroy(instance_name).await
     }
 }
 
