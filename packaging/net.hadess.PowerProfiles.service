@@ -2,4 +2,4 @@
 Name=net.hadess.PowerProfiles
 Exec=/bin/false
 User=root
-SystemdService=tuned-rs-ppd.service
+SystemdService=tuned-ppd.service
