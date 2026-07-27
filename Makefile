@@ -9,7 +9,7 @@ MANDIR ?= /usr/share/man
 ETCTUNEDDIR ?= /etc/tuned
 PROFILEDIR ?= /usr/lib/tuned/profiles
 
-.PHONY: all build test check install install-bin install-data install-config install-profiles tarball vendor srpm
+.PHONY: all build test check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm
 
 all: build
 
@@ -35,6 +35,13 @@ check:
 
 test:
 	cargo test --locked
+	$(MAKE) proofs
+
+proofs:
+	sh scripts/check-formal.sh
+
+proofs-strict:
+	sh scripts/check-formal.sh --strict
 
 install: build install-bin install-data
 
