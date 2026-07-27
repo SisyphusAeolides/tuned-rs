@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -11,87 +11,173 @@ use crate::config;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct RollbackFile {
+    #[serde(default)]
     entries: HashMap<String, String>,
+    #[serde(default)]
+    order: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RollbackState {
+    entries: HashMap<String, String>,
+    order: Vec<String>,
 }
 
 pub struct Rollback {
     path: PathBuf,
-    entries: Mutex<HashMap<String, String>>,
+    state: Mutex<RollbackState>,
 }
 
 impl Rollback {
     pub fn load() -> Result<Self> {
-        let path = config::resolve_path(config::ROLLBACK_FILE);
-        let entries = if path.is_file() {
+        Self::load_from_path(config::resolve_path(config::ROLLBACK_FILE))
+    }
+
+    fn load_from_path(path: PathBuf) -> Result<Self> {
+        let persisted = if path.is_file() {
             let content = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read {}", path.display()))?;
             serde_json::from_str::<RollbackFile>(&content)
                 .with_context(|| format!("Failed to parse {}", path.display()))?
-                .entries
         } else {
-            HashMap::new()
+            RollbackFile::default()
         };
 
-        if !entries.is_empty() {
-            info!("Loaded {} rollback entries from disk", entries.len());
+        let mut state = RollbackState {
+            entries: persisted.entries,
+            order: persisted.order,
+        };
+        normalize_order(&mut state);
+
+        if !state.entries.is_empty() {
+            info!("Loaded {} rollback entries from disk", state.entries.len());
         }
 
         Ok(Self {
             path,
-            entries: Mutex::new(entries),
+            state: Mutex::new(state),
         })
     }
 
     pub fn record_original(&self, key: &str, original: &str) -> Result<()> {
-        let mut entries = self.entries.lock().unwrap();
-        if !entries.contains_key(key) {
-            entries.insert(key.to_string(), original.to_string());
-            drop(entries);
-            self.persist()?;
+        let mut state = self.state.lock().unwrap();
+        if state.entries.contains_key(key) {
+            return Ok(());
         }
+
+        let mut next = state.clone();
+        next.entries.insert(key.to_string(), original.to_string());
+        next.order.push(key.to_string());
+        self.persist_state(&next)?;
+        *state = next;
         Ok(())
     }
 
     pub fn restore_all(&self) -> Result<()> {
-        let entries: HashMap<_, _> = self.entries.lock().unwrap().clone();
-        if entries.is_empty() {
+        self.restore_with(restore_entry)
+    }
+
+    fn restore_with<F>(&self, mut restore: F) -> Result<()>
+    where
+        F: FnMut(&str, &str) -> Result<()>,
+    {
+        let mut state = self.state.lock().unwrap();
+        if state.entries.is_empty() {
             return Ok(());
         }
 
-        info!("Restoring {} tuned value(s)", entries.len());
-        for (key, original) in &entries {
-            if let Err(error) = restore_entry(key, original) {
-                warn!("Failed to restore '{key}': {error}");
+        normalize_order(&mut state);
+        info!("Restoring {} tuned value(s)", state.entries.len());
+
+        let snapshot = state.clone();
+        let mut remaining = snapshot.clone();
+        let mut failures = Vec::new();
+
+        for key in snapshot.order.iter().rev() {
+            let Some(original) = snapshot.entries.get(key) else {
+                continue;
+            };
+            match restore(key, original) {
+                Ok(()) => {
+                    remaining.entries.remove(key);
+                    remaining.order.retain(|entry| entry != key);
+                }
+                Err(error) => {
+                    warn!("Failed to restore '{key}': {error}");
+                    failures.push(format!("{key}: {error}"));
+                }
             }
         }
 
-        self.clear()?;
-        Ok(())
+        self.persist_state(&remaining)?;
+        *state = remaining;
+
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            bail!(
+                "Failed to restore {} tuned value(s): {}",
+                failures.len(),
+                failures.join("; ")
+            )
+        }
     }
 
     pub fn clear(&self) -> Result<()> {
-        self.entries.lock().unwrap().clear();
-        if self.path.is_file() {
-            fs::remove_file(&self.path)
-                .with_context(|| format!("Failed to remove {}", self.path.display()))?;
-        }
+        let mut state = self.state.lock().unwrap();
+        let empty = RollbackState::default();
+        self.persist_state(&empty)?;
+        *state = empty;
         Ok(())
     }
 
-    fn persist(&self) -> Result<()> {
+    fn persist_state(&self, state: &RollbackState) -> Result<()> {
+        if state.entries.is_empty() {
+            if self.path.is_file() {
+                fs::remove_file(&self.path)
+                    .with_context(|| format!("Failed to remove {}", self.path.display()))?;
+            }
+            return Ok(());
+        }
+
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create {}", parent.display()))?;
         }
 
         let snapshot = RollbackFile {
-            entries: self.entries.lock().unwrap().clone(),
+            entries: state.entries.clone(),
+            order: state.order.clone(),
         };
         let content = serde_json::to_string_pretty(&snapshot)?;
-        fs::write(&self.path, content)
-            .with_context(|| format!("Failed to write {}", self.path.display()))?;
+        let temporary = self.path.with_extension("tmp");
+        fs::write(&temporary, content)
+            .with_context(|| format!("Failed to write {}", temporary.display()))?;
+        fs::rename(&temporary, &self.path).with_context(|| {
+            format!(
+                "Failed to replace {} with {}",
+                self.path.display(),
+                temporary.display()
+            )
+        })?;
         Ok(())
     }
+}
+
+fn normalize_order(state: &mut RollbackState) {
+    let mut seen = HashSet::new();
+    state
+        .order
+        .retain(|key| state.entries.contains_key(key) && seen.insert(key.clone()));
+
+    let mut missing = state
+        .entries
+        .keys()
+        .filter(|key| !seen.contains(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    missing.sort_unstable();
+    state.order.extend(missing);
 }
 
 fn restore_entry(key: &str, original: &str) -> Result<()> {
@@ -103,10 +189,68 @@ fn restore_entry(key: &str, original: &str) -> Result<()> {
         "sysctl" => crate::tuning::sysctl::write_raw(target, original),
         "vm" => crate::tuning::vm::write_raw(target, original),
         "sysfs" => crate::tuning::sysfs::write_raw(Path::new(target), original),
-        _ => anyhow::bail!("Unknown rollback key type in '{key}'"),
+        _ => bail!("Unknown rollback key type in '{key}'"),
     }
 }
 
 pub fn rollback_key(kind: &str, target: &str) -> String {
     format!("{kind}:{target}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn restores_in_reverse_order_and_retains_failures() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("rollback.json");
+        let rollback = Rollback::load_from_path(path.clone()).unwrap();
+
+        rollback.record_original("sysfs:first", "1").unwrap();
+        rollback.record_original("sysfs:second", "2").unwrap();
+        rollback.record_original("sysfs:third", "3").unwrap();
+
+        let mut restored = Vec::new();
+        let error = rollback
+            .restore_with(|key, _| {
+                restored.push(key.to_string());
+                if key == "sysfs:second" {
+                    bail!("device disappeared");
+                }
+                Ok(())
+            })
+            .unwrap_err();
+
+        assert_eq!(
+            restored,
+            vec!["sysfs:third", "sysfs:second", "sysfs:first"]
+        );
+        assert!(error.to_string().contains("sysfs:second"));
+
+        let persisted: RollbackFile =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(persisted.entries.len(), 1);
+        assert_eq!(persisted.entries.get("sysfs:second"), Some(&"2".to_string()));
+        assert_eq!(persisted.order, vec!["sysfs:second"]);
+
+        rollback.restore_with(|_, _| Ok(())).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn loads_legacy_unordered_rollback_files() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("rollback.json");
+        fs::write(
+            &path,
+            r#"{"entries":{"sysfs:b":"2","sysfs:a":"1"}}"#,
+        )
+        .unwrap();
+
+        let rollback = Rollback::load_from_path(path).unwrap();
+        let state = rollback.state.lock().unwrap();
+        assert_eq!(state.order, vec!["sysfs:a", "sysfs:b"]);
+    }
 }
