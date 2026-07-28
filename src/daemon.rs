@@ -12,6 +12,7 @@ use crate::rollback::Rollback;
 use crate::socket_signals::SignalRegistry;
 use crate::tuning;
 use crate::verification;
+use crate::verification_sysfs;
 use crate::verification_units;
 
 pub struct Daemon {
@@ -150,6 +151,7 @@ impl Daemon {
         match run_blocking(move || {
             let mut report = verification::verify_profile(&profile);
             verification_units::augment(&profile, &mut report);
+            verification_sysfs::augment(&profile, &mut report);
             Ok(report)
         }) {
             Ok(report) => {
