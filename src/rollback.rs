@@ -32,6 +32,7 @@ struct RollbackState {
 pub struct Rollback {
     path: PathBuf,
     state: Mutex<RollbackState>,
+    managed_files: Vec<PathBuf>,
 }
 
 impl Rollback {
@@ -40,6 +41,13 @@ impl Rollback {
     }
 
     fn load_from_path(path: PathBuf) -> Result<Self> {
+        Self::load_from_path_with_managed_files(path, default_managed_files())
+    }
+
+    fn load_from_path_with_managed_files(
+        path: PathBuf,
+        managed_files: Vec<PathBuf>,
+    ) -> Result<Self> {
         let persisted = if path.is_file() {
             let content = fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -62,6 +70,7 @@ impl Rollback {
         Ok(Self {
             path,
             state: Mutex::new(state),
+            managed_files,
         })
     }
 
@@ -80,7 +89,7 @@ impl Rollback {
     }
 
     pub fn record_managed_file(&self, path: &Path) -> Result<()> {
-        validate_managed_file(path)?;
+        validate_managed_file(path, &self.managed_files)?;
         let snapshot = match fs::read(path) {
             Ok(contents) => ManagedFileSnapshot {
                 existed: true,
@@ -99,7 +108,8 @@ impl Rollback {
     }
 
     pub fn restore_all(&self) -> Result<()> {
-        self.restore_with(restore_entry)
+        let managed_files = self.managed_files.clone();
+        self.restore_with(move |key, original| restore_entry(key, original, &managed_files))
     }
 
     fn restore_with<F>(&self, mut restore: F) -> Result<()>
@@ -189,6 +199,10 @@ impl Rollback {
     }
 }
 
+fn default_managed_files() -> Vec<PathBuf> {
+    vec![config::resolve_path("/etc/modprobe.d/tuned.conf")]
+}
+
 fn normalize_order(state: &mut RollbackState) {
     let mut seen = HashSet::new();
     state
@@ -205,7 +219,7 @@ fn normalize_order(state: &mut RollbackState) {
     state.order.extend(missing);
 }
 
-fn restore_entry(key: &str, original: &str) -> Result<()> {
+fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result<()> {
     let (kind, target) = key
         .split_once(':')
         .ok_or_else(|| anyhow::anyhow!("Invalid rollback key '{key}'"))?;
@@ -214,14 +228,14 @@ fn restore_entry(key: &str, original: &str) -> Result<()> {
         "sysctl" => crate::tuning::sysctl::write_raw(target, original),
         "vm" => crate::tuning::vm::write_raw(target, original),
         "sysfs" => crate::tuning::sysfs::write_raw(Path::new(target), original),
-        "file" => restore_managed_file(Path::new(target), original),
+        "file" => restore_managed_file(Path::new(target), original, managed_files),
         "script" => crate::tuning::script::run_rollback_script(Path::new(target), original),
         _ => bail!("Unknown rollback key type in '{key}'"),
     }
 }
 
-fn restore_managed_file(path: &Path, encoded: &str) -> Result<()> {
-    validate_managed_file(path)?;
+fn restore_managed_file(path: &Path, encoded: &str, managed_files: &[PathBuf]) -> Result<()> {
+    validate_managed_file(path, managed_files)?;
     let snapshot: ManagedFileSnapshot = serde_json::from_str(encoded)
         .with_context(|| format!("Invalid file rollback snapshot for {}", path.display()))?;
     if snapshot.existed {
@@ -240,8 +254,7 @@ fn restore_managed_file(path: &Path, encoded: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_managed_file(path: &Path) -> Result<()> {
-    let allowed = [config::resolve_path("/etc/modprobe.d/tuned.conf")];
+fn validate_managed_file(path: &Path, allowed: &[PathBuf]) -> Result<()> {
     if allowed.iter().any(|candidate| candidate == path) {
         Ok(())
     } else {
@@ -312,26 +325,31 @@ mod tests {
     #[test]
     fn restores_existing_managed_file_contents() {
         let dir = TempDir::new().unwrap();
-        std::env::set_var("TUNED_RS_ROOT", dir.path());
-        let path = config::resolve_path("/etc/modprobe.d/tuned.conf");
+        let path = dir.path().join("etc/modprobe.d/tuned.conf");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"before\n").unwrap();
-        let rollback = Rollback::load_from_path(dir.path().join("rollback.json")).unwrap();
+        let rollback = Rollback::load_from_path_with_managed_files(
+            dir.path().join("rollback.json"),
+            vec![path.clone()],
+        )
+        .unwrap();
 
         rollback.record_managed_file(&path).unwrap();
         fs::write(&path, b"after\n").unwrap();
         rollback.restore_all().unwrap();
 
         assert_eq!(fs::read(&path).unwrap(), b"before\n");
-        std::env::remove_var("TUNED_RS_ROOT");
     }
 
     #[test]
     fn removes_managed_file_that_did_not_exist_before_apply() {
         let dir = TempDir::new().unwrap();
-        std::env::set_var("TUNED_RS_ROOT", dir.path());
-        let path = config::resolve_path("/etc/modprobe.d/tuned.conf");
-        let rollback = Rollback::load_from_path(dir.path().join("rollback.json")).unwrap();
+        let path = dir.path().join("etc/modprobe.d/tuned.conf");
+        let rollback = Rollback::load_from_path_with_managed_files(
+            dir.path().join("rollback.json"),
+            vec![path.clone()],
+        )
+        .unwrap();
 
         rollback.record_managed_file(&path).unwrap();
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -339,6 +357,19 @@ mod tests {
         rollback.restore_all().unwrap();
 
         assert!(!path.exists());
-        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn rejects_managed_files_outside_the_pinned_allowlist() {
+        let dir = TempDir::new().unwrap();
+        let allowed = dir.path().join("etc/modprobe.d/tuned.conf");
+        let rejected = dir.path().join("etc/shadow");
+        let rollback = Rollback::load_from_path_with_managed_files(
+            dir.path().join("rollback.json"),
+            vec![allowed],
+        )
+        .unwrap();
+
+        assert!(rollback.record_managed_file(&rejected).is_err());
     }
 }
