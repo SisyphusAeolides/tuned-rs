@@ -1,197 +1,112 @@
 # tuned-rs
 
-High-performance Rust rewrite of the TuneD system tuning daemon with advanced features beyond the original.
+`tuned-rs` is a native Rust implementation of TuneD for Linux. It installs the
+standard `tuned`, `tuned-adm`, and `tuned-ppd` command and service identities,
+owns TuneD's system D-Bus API, and consumes existing TuneD profiles.
 
-## Features
+## Compatibility
 
-### Core Compatibility
-- Drop-in D-Bus API compatibility with `com.redhat.tuned` / `com.redhat.tuned.control`
-- Loads existing profiles from `/usr/lib/tuned` and `/etc/tuned`
-- Rollback of original values on profile switch and shutdown (`rollback=auto`)
-- PolicyKit authorization matching TuneD (`com.redhat.tuned.<method>` with root fallback)
-- Power Profile Daemon (PPD) integration via `tuned-rs-ppd`
+- `com.redhat.tuned.control` D-Bus methods, signals, PolicyKit actions, and
+  activation identity
+- TuneD's optional JSON-RPC Unix socket and signal sockets
+- `tuned-adm` profile, verification, plugin, and dynamic-instance commands
+- power-profiles-daemon compatibility through `tuned-ppd`
+- layered and stacked profiles under `/usr/lib/tuned/profiles` and
+  `/etc/tuned/profiles`
+- ordered variables, external variable files, nested `${f:...}` functions,
+  conditional instances, device matching, and profile-local scripts
+- transactional rollback across profile changes, shutdown, and failed applies
+- upstream bootloader, CPU, disk, network, scheduler, sysctl, sysfs, VM,
+  service, IRQ, USB, video, audio, ACPI, uncore, mount, and realtime controls
+- dynamic disk, network, CPU, scheduler, and device-instance tuning
 
-### Plugin Coverage
+The RPM provides and obsoletes both `tuned` and `tuned-ppd`, so it can replace
+the Python packages without changing callers or service names.
 
-#### Original TuneD Plugins
-- **cpu** — governor, energy_performance_preference
-- **sysctl** — assignment operators (`>`, `>=`, `=>`, `<`, `<=`, `=<`)
-- **vm** — dirty bytes/ratios (including `%`), transparent hugepages
-- **disk** — readahead (with `=>` floor semantics), elevator, optional device list
-- **acpi** — platform_profile with `|` fallbacks
+## Control Center
 
-#### NVIDIA GPU Support
-- **nvidia_power_limit** — Power limit control via nvidia-smi
-- **nvidia_graphics_clock** — Graphics clock frequency tuning
-- **nvidia_memory_clock** — Memory clock frequency tuning
-- **nvidia_persistence_mode** — Persistence mode for faster startup
-- **network** — TCP/IP stack tuning (congestion control, window scaling, timestamps, SACK, fastopen, buffer sizes)
-- **gpu** — AMD GPU power profile management, DRM interface, automatic detection
-- **storage** — NVMe APST, I/O scheduler per-device, queue depth optimization
-- **thermal** — CPU temperature limits, fan control, thermal policies, trip points
-- **battery** — charge thresholds, conservation mode, battery care limits
-
-### Advanced Features
-- **Dynamic Tuning** — Real-time workload detection with automatic profile recommendations
-- **Performance Telemetry** — Comprehensive metrics collection (CPU, memory, I/O, network, GPU, temperatures, power)
-- **Workload Detection** — Intelligent classification (Idle/Light/Moderate/Heavy/Gaming/Compilation)
-
-## Build
-
-Install the build dependencies on Fedora, RHEL, or an EPEL-enabled system:
+Launch the interactive processor, network, power-profile, and telemetry UI
+from the desktop application menu or a terminal:
 
 ```bash
-sudo dnf install cargo rust make systemd-devel
+tuned-rs-gui
 ```
 
-Then build and test:
-
-```bash
-cargo build --release
-make check
-make test
-```
+The launcher creates a random loopback-only HTTP endpoint protected by a
+192-bit per-session token, opens the default browser, and exits after the tab
+has closed. Changes are applied through TuneD's transactional instance API.
 
 ## Install
 
-Install conflicts with the Python `tuned` package because both services claim
-`com.redhat.tuned` on the system bus.
-
-### COPR package
+On Fedora, RHEL, or an EPEL-enabled system:
 
 ```bash
 sudo dnf install dnf-plugins-core
 sudo dnf copr enable sisyphuscode/tuned-rs
 sudo dnf install tuned-rs
+sudo systemctl enable --now tuned.service
 ```
 
-The COPR builds for EPEL 9, EPEL 10, RHEL 9, RHEL 10, Fedora 44, and Fedora
-Rawhide on x86_64.
-
-### From source
+To build from source:
 
 ```bash
 sudo dnf install cargo rust make systemd-devel
-make
+make check
+make test
 sudo make install
-sudo systemctl enable --now tuned-rs
+sudo systemctl enable --now tuned.service
 ```
 
-## Verify
+## Use
+
+The standard TuneD commands work unchanged:
 
 ```bash
-busctl call com.redhat.tuned /Tuned com.redhat.tuned.control profiles
-busctl call com.redhat.tuned /Tuned com.redhat.tuned.control active_profile
+tuned-adm list
 tuned-adm active
-tuned-adm profile balanced
+tuned-adm recommend
+tuned-adm profile throughput-performance
+tuned-adm verify
 ```
+
+Power-profile-aware desktops can use the standard
+`org.freedesktop.UPower.PowerProfiles` interface provided by `tuned-ppd`.
 
 ## Configuration
 
-### Environment Variables
-- `TUNED_RS_PROFILE_DIRS` — comma-separated profile search path
-- `TUNED_RS_ROOT` — chroot-style prefix for config/state paths (testing)
-- `RUST_LOG` — logging filter, e.g. `RUST_LOG=tuned_rs=debug`
+Global settings are read from `/etc/tuned/tuned-main.conf`, including daemon,
+dynamic tuning, timing, rollback, profile directories, D-Bus, Unix socket,
+instance priority, sysctl reapplication, and startup udev-settle controls.
+Power-profile mappings are read from `/etc/tuned/ppd.conf`.
 
-### Configuration Files
-- `/etc/tuned/tuned-main.conf` — honors `rollback = auto|not_on_exit`
-- `/etc/tuned/ppd.conf` — PPD profile mapping and `sysfs_acpi_monitor`
-- `/var/lib/tuned-rs/rollback.json` — persisted rollback state (crash recovery)
+The package installs administrator-editable realtime and CPU-partitioning
+variable templates in `/etc/tuned`. RPM upgrades preserve local edits.
 
-### Profile Configuration
+Useful test-only overrides are:
 
-Profiles support all original TuneD sections plus new advanced sections:
+- `TUNED_RS_ROOT`: prefix absolute system paths with a synthetic root
+- `TUNED_RS_PROFILE_DIRS`: override the configured profile search path
+- `TUNED_RS_CPUINFO_STRING` and `TUNED_RS_UNAME_STRING`: override conditions
+- `RUST_LOG`: select the tracing filter
 
-```ini
-[main]
-summary=High-performance profile with advanced tuning
-
-[cpu]
-governor=performance
-energy_performance_preference=performance
-
-[network]
-tcp_congestion_control=bbr
-tcp_window_scaling=1
-tcp_timestamps=1
-tcp_sack=1
-tcp_fastopen=3
-
-[gpu]
-nvidia_power_limit=250
-nvidia_graphics_clock=1800
-nvidia_memory_clock=7000
-nvidia_persistence_mode=on
-
-[hermes]
-gsp_power_mode=performance
-cmd_ring_size=4096
-rsp_ring_size=4096
-display_heads=4
-amd_power_profile=high
-amd_power_dpm_force_performance_level=high
-
-[storage]
-nvme_apst=0
-io_scheduler=mq-deadline
-nr_requests=256
-
-[thermal]
-cpu_temp_limit=85
-fan_control=auto
-
-[battery]
-charge_start_threshold=20
-charge_stop_threshold=80
-```
-
-### Power Profile Management
-
-Desktop power mode is controlled by `tuned-rs-ppd` and persisted in
-`/etc/tuned/ppd_base_profile`. The underlying TuneD profile name is stored in
-`/etc/tuned/active_profile`.
-
-Set the profile through one of these interfaces:
+## Validation
 
 ```bash
-# Desktop / power-profiles-daemon API
-busctl call org.freedesktop.UPower.PowerProfiles /org/freedesktop/UPower/PowerProfiles \
-  org.freedesktop.UPower.PowerProfiles SetProfile s performance
-
-# TuneD API
-busctl call com.redhat.tuned /Tuned com.redhat.tuned.control switch_profile s throughput-performance b true
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets -- -D warnings
+make packaging-check
+make proofs-strict
 ```
 
-If the profile keeps reverting to `balanced`, disable automatic ACPI monitoring:
-
-```ini
-# /etc/tuned/ppd.conf
-sysfs_acpi_monitor=false
-```
-
-Then restart `tuned-rs-ppd`.
-
-## Performance Benefits
-
-Compared to the original Python TuneD:
-- **Lower memory footprint** — Native Rust binary vs Python interpreter
-- **Faster profile switching** — Compiled code with zero-cost abstractions
-- **Better concurrency** — Tokio async runtime for non-blocking I/O
-- **Enhanced features** — Network, GPU, storage, thermal, and battery plugins
-- **Real-time monitoring** — Built-in telemetry and workload detection
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code follows Rust best practices and idioms
-- All plugins include rollback support
-- Changes are tested on target platforms
-- Commit messages are clear and descriptive
+The profile integration suite audits the complete bundled upstream profile set
+and can audit another TuneD checkout through `TUNED_RS_UPSTREAM_PROFILES`.
+Formal models are checked with Fortran, Idris 2, and Agda when those toolchains
+are installed.
 
 ## License
 
-Same license as original TuneD project.
+GPL-2.0-or-later
 
 ## Author
 
-Kenny Glowner (@SisyphusAeolides)
+Kenny Glowner (SisyphusAeolides)

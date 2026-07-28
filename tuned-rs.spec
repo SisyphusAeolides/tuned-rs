@@ -1,7 +1,7 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.1.0
-Release:        3%{?dist}
+Version:        0.2.0
+Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
 Provides:       tuned = %{epoch}:%{version}-%{release}
@@ -110,6 +110,11 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.0-1
+- Complete TuneD profile, plugin, control API, and configuration compatibility
+- Add dynamic device tuning and the TuneD Control Center
+- Add formal verification artifacts and expanded integration coverage
+
 * Mon Jul 27 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.1.0-3
 - Add the TuneD-compatible tuned-adm administration client
 - Install classic tuned, tuned-ppd, service, and D-Bus activation identities
