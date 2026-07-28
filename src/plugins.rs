@@ -261,6 +261,64 @@ const IRQBALANCE_OPTIONS: &[PluginOption] = &[PluginOption {
     hint: "CPU list excluded from irqbalance IRQ placement.",
 }];
 
+const SCHEDULER_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "sched_min_granularity_ns",
+        default_value: "",
+        hint: "Minimum CFS scheduling granularity in nanoseconds.",
+    },
+    PluginOption {
+        name: "sched_base_slice_ns",
+        default_value: "",
+        hint: "CFS base slice in nanoseconds on Linux 6.6 and newer.",
+    },
+    PluginOption {
+        name: "sched_latency_ns",
+        default_value: "",
+        hint: "Target CFS scheduling latency in nanoseconds.",
+    },
+    PluginOption {
+        name: "sched_wakeup_granularity_ns",
+        default_value: "",
+        hint: "CFS wakeup-preemption granularity in nanoseconds.",
+    },
+    PluginOption {
+        name: "sched_tunable_scaling",
+        default_value: "",
+        hint: "Kernel scheduler tunable scaling mode.",
+    },
+    PluginOption {
+        name: "sched_migration_cost_ns",
+        default_value: "",
+        hint: "Scheduler cache-hot migration cost in nanoseconds.",
+    },
+    PluginOption {
+        name: "sched_nr_migrate",
+        default_value: "",
+        hint: "Maximum tasks moved per scheduler load-balance pass.",
+    },
+    PluginOption {
+        name: "numa_balancing_scan_delay_ms",
+        default_value: "",
+        hint: "NUMA balancing scan delay in milliseconds.",
+    },
+    PluginOption {
+        name: "numa_balancing_scan_period_min_ms",
+        default_value: "",
+        hint: "Minimum NUMA balancing scan period in milliseconds.",
+    },
+    PluginOption {
+        name: "numa_balancing_scan_period_max_ms",
+        default_value: "",
+        hint: "Maximum NUMA balancing scan period in milliseconds.",
+    },
+    PluginOption {
+        name: "numa_balancing_scan_size_mb",
+        default_value: "",
+        hint: "NUMA balancing scan size in megabytes.",
+    },
+];
+
 const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
     name: "script",
     default_value: "",
@@ -520,6 +578,11 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: &[],
     },
     PluginDescriptor {
+        name: "scheduler",
+        documentation: "Controls kernel scheduler and NUMA-balancing tunables.",
+        options: SCHEDULER_OPTIONS,
+    },
+    PluginDescriptor {
         name: "script",
         documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
         options: SCRIPT_OPTIONS,
@@ -631,6 +694,7 @@ mod tests {
             "uncore",
             "irqbalance",
             "rtentsk",
+            "scheduler",
             "script",
             "gpu",
             "storage",

@@ -49,6 +49,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "uncore" => verify_uncore(&unit, report),
             "irqbalance" => verify_irqbalance(&unit, report),
             "rtentsk" => verify_rtentsk(&unit, report),
+            "scheduler" => verify_scheduler(&unit, report),
             "script" => verify_script(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
@@ -239,6 +240,21 @@ fn verify_rtentsk(unit: &ProfileUnit, report: &mut VerificationReport) {
             "open timestamping socket",
             None,
             "RTENTSK timestamping socket is not active",
+        );
+    }
+}
+
+fn verify_scheduler(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::scheduler::verify_options(&unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "scheduler",
+            "kernel-knobs",
+            &unit.name,
+            "configured scheduler values",
+            None,
+            "kernel scheduler tunables do not match",
         );
     }
 }

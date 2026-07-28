@@ -11,6 +11,7 @@ pub mod modifiers;
 pub mod modules;
 pub mod network;
 pub mod rtentsk;
+pub mod scheduler;
 pub mod script;
 pub mod scsi_host;
 pub mod selinux;
@@ -73,6 +74,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "uncore" => uncore::apply_options(rollback, &unit.devices, &unit.options),
         "irqbalance" => irqbalance::apply_options(rollback, &unit.options),
         "rtentsk" => rtentsk::apply(),
+        "scheduler" => scheduler::apply_options(rollback, &unit.options),
         "script" => {
             if let Some(scripts) = option_value(&unit.options, "script") {
                 script::apply_scripts(rollback, scripts)?;
