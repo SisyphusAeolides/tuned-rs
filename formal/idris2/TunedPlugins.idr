@@ -21,6 +21,9 @@ public export
 data Transition = Reject | NoChange | Mutate
 
 public export
+data ResourceState = Closed | Open
+
+public export
 validate : Support -> Scope -> Selection -> OptionState -> Snapshot -> Transition
 validate Unsupported _ _ _ _ = Reject
 validate Supported Global SelectedDevices _ _ = Reject
@@ -57,3 +60,27 @@ public export
 validTransactionalGlobalMutation :
   validate Supported Global AllDevices Valid Recorded = Mutate
 validTransactionalGlobalMutation = Refl
+
+public export
+acquireResource : Support -> ResourceState -> ResourceState
+acquireResource Supported _ = Open
+acquireResource Unsupported state = state
+
+public export
+releaseResource : ResourceState -> ResourceState
+releaseResource _ = Closed
+
+public export
+resourceAcquireIsIdempotent :
+  acquireResource Supported (acquireResource Supported Closed) = Open
+resourceAcquireIsIdempotent = Refl
+
+public export
+rollbackReleasesRuntimeResource :
+  releaseResource (acquireResource Supported Closed) = Closed
+rollbackReleasesRuntimeResource = Refl
+
+public export
+unsupportedResourceStaysClosed :
+  acquireResource Unsupported Closed = Closed
+unsupportedResourceStaysClosed = Refl

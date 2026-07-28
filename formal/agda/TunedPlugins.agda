@@ -22,6 +22,9 @@ data Snapshot : Set where
 data Transition : Set where
   reject noChange mutate : Transition
 
+data ResourceState : Set where
+  closed active : ResourceState
+
 validate : Support → Scope → Selection → OptionState → Snapshot → Transition
 validate unsupported _ _ _ _ = reject
 validate supported global selectedDevices _ _ = reject
@@ -52,3 +55,22 @@ validTransactionalDeviceMutation = refl
 validTransactionalGlobalMutation :
   validate supported global allDevices valid recorded ≡ mutate
 validTransactionalGlobalMutation = refl
+
+acquireResource : Support → ResourceState → ResourceState
+acquireResource supported _ = active
+acquireResource unsupported state = state
+
+releaseResource : ResourceState → ResourceState
+releaseResource _ = closed
+
+resourceAcquireIsIdempotent :
+  acquireResource supported (acquireResource supported closed) ≡ active
+resourceAcquireIsIdempotent = refl
+
+rollbackReleasesRuntimeResource :
+  releaseResource (acquireResource supported closed) ≡ closed
+rollbackReleasesRuntimeResource = refl
+
+unsupportedResourceStaysClosed :
+  acquireResource unsupported closed ≡ closed
+unsupportedResourceStaysClosed = refl

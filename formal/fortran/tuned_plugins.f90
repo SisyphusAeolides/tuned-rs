@@ -4,6 +4,8 @@ module tuned_plugins_model
     integer, parameter :: transition_reject = 0
     integer, parameter :: transition_no_change = 1
     integer, parameter :: transition_mutate = 2
+    integer, parameter :: resource_closed = 0
+    integer, parameter :: resource_open = 1
 
 contains
 
@@ -28,6 +30,27 @@ contains
         end if
     end function validate_plugin
 
+    pure integer function acquire_resource(plugin_supported, state) result(next_state)
+        logical, intent(in) :: plugin_supported
+        integer, intent(in) :: state
+
+        if (plugin_supported) then
+            next_state = resource_open
+        else
+            next_state = state
+        end if
+    end function acquire_resource
+
+    pure integer function release_resource(state) result(next_state)
+        integer, intent(in) :: state
+
+        if (state == resource_open) then
+            next_state = resource_closed
+        else
+            next_state = resource_closed
+        end if
+    end function release_resource
+
 end module tuned_plugins_model
 
 program tuned_plugins_check
@@ -51,5 +74,14 @@ program tuned_plugins_check
     end if
     if (validate_plugin(.true., .false., .false., .true., .true.) /= transition_mutate) then
         error stop "valid transactional global mutation was rejected"
+    end if
+    if (acquire_resource(.true., acquire_resource(.true., resource_closed)) /= resource_open) then
+        error stop "runtime resource acquisition is not idempotent"
+    end if
+    if (release_resource(acquire_resource(.true., resource_closed)) /= resource_closed) then
+        error stop "rollback did not release runtime resource"
+    end if
+    if (acquire_resource(.false., resource_closed) /= resource_closed) then
+        error stop "unsupported runtime resource was acquired"
     end if
 end program tuned_plugins_check

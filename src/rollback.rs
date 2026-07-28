@@ -108,6 +108,7 @@ impl Rollback {
     }
 
     pub fn restore_all(&self) -> Result<()> {
+        crate::tuning::cleanup_runtime_resources();
         let managed_files = self.managed_files.clone();
         self.restore_with(move |key, original| restore_entry(key, original, &managed_files))
     }

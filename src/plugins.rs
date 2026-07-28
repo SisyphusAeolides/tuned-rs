@@ -514,6 +514,12 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: IRQBALANCE_OPTIONS,
     },
     PluginDescriptor {
+        name: "rtentsk",
+        documentation:
+            "Keeps the kernel network timestamping static key enabled for the profile lifetime.",
+        options: &[],
+    },
+    PluginDescriptor {
         name: "script",
         documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
         options: SCRIPT_OPTIONS,
@@ -624,6 +630,7 @@ mod tests {
             "systemd",
             "uncore",
             "irqbalance",
+            "rtentsk",
             "script",
             "gpu",
             "storage",

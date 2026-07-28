@@ -10,6 +10,7 @@ pub mod irqbalance;
 pub mod modifiers;
 pub mod modules;
 pub mod network;
+pub mod rtentsk;
 pub mod script;
 pub mod scsi_host;
 pub mod selinux;
@@ -71,6 +72,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "systemd" => systemd::apply_options(rollback, &unit.options),
         "uncore" => uncore::apply_options(rollback, &unit.devices, &unit.options),
         "irqbalance" => irqbalance::apply_options(rollback, &unit.options),
+        "rtentsk" => rtentsk::apply(),
         "script" => {
             if let Some(scripts) = option_value(&unit.options, "script") {
                 script::apply_scripts(rollback, scripts)?;
@@ -87,6 +89,10 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             unit.name
         ),
     }
+}
+
+pub fn cleanup_runtime_resources() {
+    rtentsk::cleanup();
 }
 
 fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {

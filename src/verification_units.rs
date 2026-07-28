@@ -48,6 +48,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "systemd" => verify_systemd(&unit, report),
             "uncore" => verify_uncore(&unit, report),
             "irqbalance" => verify_irqbalance(&unit, report),
+            "rtentsk" => verify_rtentsk(&unit, report),
             "script" => verify_script(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
@@ -223,6 +224,21 @@ fn verify_irqbalance(unit: &ProfileUnit, report: &mut VerificationReport) {
             unit.option("banned_cpus").unwrap_or_default(),
             None,
             "irqbalance banned CPU list does not match",
+        );
+    }
+}
+
+fn verify_rtentsk(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::rtentsk::verify() {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "rtentsk",
+            "socket",
+            &unit.name,
+            "open timestamping socket",
+            None,
+            "RTENTSK timestamping socket is not active",
         );
     }
 }
