@@ -66,6 +66,6 @@ failedStateCannotBeginDirectly = Refl
 public export
 applyThenAbortThenRestore : Reachable Idle Idle
 applyThenAbortThenRestore =
-  Step beginStartsApplication
-    (Step abortRequiresRollback
-      (Step successfulRestoreReturnsIdle Here))
+  Step {event = Begin} beginStartsApplication
+    (Step {event = Abort} abortRequiresRollback
+      (Step {event = Restored} successfulRestoreReturnsIdle Here))
