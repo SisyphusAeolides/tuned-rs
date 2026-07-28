@@ -432,8 +432,9 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
         if section.eq_ignore_ascii_case("main") {
             continue;
         }
-        let unit =
-            ProfileUnit::from_options(&section, section_options(&ini, profile_dir, &section))?;
+        let mut options = section_options(&ini, profile_dir, &section);
+        order_options_like_source(path, &section, &mut options)?;
+        let unit = ProfileUnit::from_options(&section, options)?;
         if unit.plugin_type == "variables" {
             variable_policy = Some((unit.replace, unit.prepend));
             merge_variables(&mut variables, unit.options, unit.replace, unit.prepend);
@@ -532,6 +533,51 @@ fn section_options(ini: &Ini, profile_dir: &Path, section: &str) -> PluginOption
         .collect::<Vec<_>>();
     options.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     options
+}
+
+fn order_options_like_source(
+    path: &Path,
+    section: &str,
+    options: &mut PluginOptions,
+) -> Result<()> {
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read profile {}", path.display()))?;
+    let mut active = false;
+    let mut names = Vec::new();
+    for raw_line in source.lines() {
+        let line = raw_line.trim();
+        if line.starts_with('[') {
+            active = line
+                .strip_prefix('[')
+                .and_then(|value| value.split_once(']'))
+                .is_some_and(|(name, _)| name.trim().eq_ignore_ascii_case(section));
+            continue;
+        }
+        if !active || line.is_empty() || line.starts_with(['#', ';']) {
+            continue;
+        }
+        let Some((name, _)) = line.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if !name.is_empty() {
+            names.retain(|existing: &String| !existing.eq_ignore_ascii_case(name));
+            names.push(name.to_string());
+        }
+    }
+
+    let mut ordered = Vec::with_capacity(options.len());
+    for name in names {
+        if let Some(index) = options
+            .iter()
+            .position(|(candidate, _)| candidate.eq_ignore_ascii_case(&name))
+        {
+            ordered.push(options.remove(index));
+        }
+    }
+    ordered.append(options);
+    *options = ordered;
+    Ok(())
 }
 
 fn section_entries<'a>(ini: &'a Ini, section: &str) -> Option<&'a HashMap<String, Option<String>>> {

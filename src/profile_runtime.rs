@@ -150,49 +150,64 @@ fn expand_optional(value: &mut Option<String>, variables: &VariableSet) -> Resul
 fn expand_with(raw: &str, values: &BTreeMap<String, String>) -> Result<String> {
     const ESCAPED: &str = "\u{1e}TUNED_ESCAPED_VARIABLE\u{1e}";
     const DOUBLED: &str = "\u{1e}TUNED_DOUBLED_DOLLAR\u{1e}";
+    const UNKNOWN: &str = "\u{1e}TUNED_UNKNOWN_VARIABLE\u{1e}";
+    const LITERAL_END: &str = "\u{1d}TUNED_LITERAL_END\u{1d}";
 
-    let mut current = raw
-        .replace("\\${", &format!("{ESCAPED}{{"))
-        .replace("$${", &format!("{DOUBLED}{{"));
+    let current = encode_literal_expressions(raw, "\\${", ESCAPED, LITERAL_END)?;
+    let mut current = encode_literal_expressions(&current, "$${", DOUBLED, LITERAL_END)?;
 
-    for _ in 0..64 {
-        let (next, changed) = expand_once(&current, values)?;
-        current = next;
-        if !changed {
+    for _ in 0..128 {
+        let Some(first_start) = current.find("${") else {
             return Ok(current
-                .replace(&format!("{ESCAPED}{{"), "${")
-                .replace(&format!("{DOUBLED}{{"), "${"));
-        }
+                .replace(ESCAPED, "${")
+                .replace(DOUBLED, "${")
+                .replace(UNKNOWN, "${")
+                .replace(LITERAL_END, "}"));
+        };
+        let Some(relative_end) = current[first_start..].find('}') else {
+            bail!("Unterminated variable or function expression in '{raw}'");
+        };
+        let end = first_start + relative_end;
+        let Some(start) = current[..end].rfind("${") else {
+            bail!("Unmatched closing brace in '{raw}'");
+        };
+        let expression = &current[start + 2..end];
+        let replacement = if let Some(function) = expression.strip_prefix("f:") {
+            crate::profile_functions::evaluate(function)?
+        } else if expression.starts_with("i:") {
+            format!("{UNKNOWN}{expression}{LITERAL_END}")
+        } else {
+            values
+                .get(expression)
+                .cloned()
+                .unwrap_or_else(|| format!("{UNKNOWN}{expression}{LITERAL_END}"))
+        };
+        current.replace_range(start..=end, &replacement);
     }
-    bail!("Variable expansion exceeded the recursion limit in '{raw}'")
+    bail!("Variable and function expansion exceeded the recursion limit in '{raw}'")
 }
 
-fn expand_once(raw: &str, values: &BTreeMap<String, String>) -> Result<(String, bool)> {
-    let mut output = String::with_capacity(raw.len());
-    let mut cursor = 0usize;
-    let mut changed = false;
-
-    while let Some(relative) = raw[cursor..].find("${") {
-        let start = cursor + relative;
-        output.push_str(&raw[cursor..start]);
-        let Some(relative_end) = raw[start + 2..].find('}') else {
-            output.push_str(&raw[start..]);
-            return Ok((output, changed));
-        };
-        let end = start + 2 + relative_end;
-        let name = &raw[start + 2..end];
-        if name.starts_with("i:") || name.starts_with("f:") {
-            output.push_str(&raw[start..=end]);
-        } else if let Some(value) = values.get(name) {
-            output.push_str(value);
-            changed = true;
-        } else {
-            output.push_str(&raw[start..=end]);
-        }
-        cursor = end + 1;
+fn encode_literal_expressions(
+    raw: &str,
+    prefix: &str,
+    marker: &str,
+    end_marker: &str,
+) -> Result<String> {
+    let mut output = raw.to_string();
+    let mut cursor = 0;
+    while let Some(relative_start) = output[cursor..].find(prefix) {
+        let start = cursor + relative_start;
+        let body_start = start + prefix.len();
+        let relative_end = output[body_start..]
+            .find('}')
+            .ok_or_else(|| anyhow::anyhow!("Unterminated escaped TuneD expression in '{raw}'"))?;
+        let end = body_start + relative_end;
+        let body = output[body_start..end].to_string();
+        let replacement = format!("{marker}{body}{end_marker}");
+        output.replace_range(start..=end, &replacement);
+        cursor = start + replacement.len();
     }
-    output.push_str(&raw[cursor..]);
-    Ok((output, changed))
+    Ok(output)
 }
 
 fn validate_variable_name(name: &str) -> Result<()> {
@@ -280,6 +295,7 @@ fn regex_search(pattern: &str, text: &str) -> Result<bool> {
 mod tests {
     use super::*;
     use crate::profile_units::ProfileUnit;
+    use std::fs;
 
     #[test]
     fn expands_variables_sequentially_and_preserves_escaped_references() {
@@ -292,6 +308,10 @@ mod tests {
         assert_eq!(variables.expand("${FILE}").unwrap(), "/srv/data");
         assert_eq!(variables.expand("\\${FILE}").unwrap(), "${FILE}");
         assert_eq!(variables.expand("$${FILE}").unwrap(), "${FILE}");
+        assert_eq!(
+            variables.expand("${f:strip:  ${FILE}  }").unwrap(),
+            "/srv/data"
+        );
         assert_eq!(variables.environment()["TUNED_FILE"], "/srv/data");
     }
 
@@ -339,5 +359,62 @@ mod tests {
         assert!(regex_search("a+", "baa").unwrap());
         assert!(!regex_search("^z", "baa").unwrap());
         assert!(regex_search("(", "anything").is_err());
+    }
+
+    #[test]
+    fn resolves_external_variables_and_nested_profile_functions() {
+        let _lock = crate::config::test_env_lock();
+        let root = tempfile::tempdir().unwrap();
+        for cpu in 0..4 {
+            let topology = root
+                .path()
+                .join(format!("sys/devices/system/cpu/cpu{cpu}/topology"));
+            fs::create_dir_all(&topology).unwrap();
+            fs::write(topology.join("physical_package_id"), "0\n").unwrap();
+        }
+        fs::create_dir_all(root.path().join("sys/devices/system/cpu")).unwrap();
+        fs::write(root.path().join("sys/devices/system/cpu/online"), "0-3\n").unwrap();
+        fs::write(root.path().join("sys/devices/system/cpu/present"), "0-3\n").unwrap();
+        fs::create_dir_all(root.path().join("etc/tuned")).unwrap();
+        fs::write(
+            root.path().join("etc/tuned/realtime-variables.conf"),
+            "isolated_cores=${f:calc_isolated_cores:1}\n",
+        )
+        .unwrap();
+
+        let mut profile = Profile::default();
+        profile.variables = vec![
+            (
+                "include".to_string(),
+                "/etc/tuned/realtime-variables.conf".to_string(),
+            ),
+            (
+                "isolated_cores_expanded".to_string(),
+                "${f:cpulist_unpack:${isolated_cores}}".to_string(),
+            ),
+            (
+                "isolated_cores_online".to_string(),
+                "${f:cpulist_online:${isolated_cores}}".to_string(),
+            ),
+            (
+                "assert_online".to_string(),
+                "${f:assertion:isolated CPUs are online:${isolated_cores_expanded}:${isolated_cores_online}}"
+                    .to_string(),
+            ),
+        ];
+        profile.units = vec![ProfileUnit::from_options(
+            "sysctl",
+            vec![(
+                "kernel.test_mask".to_string(),
+                "${f:cpulist2hex:${isolated_cores_expanded}}".to_string(),
+            )],
+        )
+        .unwrap()];
+
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let units = active_units(&profile).unwrap();
+        std::env::remove_var("TUNED_RS_ROOT");
+
+        assert_eq!(units[0].options[0].1, "0000000e");
     }
 }

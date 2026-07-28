@@ -24,6 +24,7 @@ BuildRequires:  systemd-devel
 Requires:       dbus
 Requires:       polkit
 Requires:       systemd
+Requires:       xdg-utils
 Conflicts:      power-profiles-daemon
 
 %description
@@ -96,6 +97,11 @@ make packaging-check
 %config(noreplace) %{_sysconfdir}/tuned/tuned-main.conf
 %config(noreplace) %{_sysconfdir}/tuned/ppd.conf
 %config(noreplace) %verify(not size mtime md5) %{_sysconfdir}/tuned/bootcmdline
+%config(noreplace) %{_sysconfdir}/tuned/realtime-variables.conf
+%config(noreplace) %{_sysconfdir}/tuned/realtime-virtual-guest-variables.conf
+%config(noreplace) %{_sysconfdir}/tuned/realtime-virtual-host-variables.conf
+%config(noreplace) %{_sysconfdir}/tuned/cpu-partitioning-variables.conf
+%config(noreplace) %{_sysconfdir}/tuned/cpu-partitioning-powersave-variables.conf
 %{_prefix}/lib/tuned/
 %{_prefix}/lib/kernel/install.d/92-tuned.install
 %{_datadir}/tuned/grub2/00_tuned

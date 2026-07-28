@@ -63,6 +63,13 @@ packaging-check:
 	test -f packaging/tuned-rs-gui.desktop
 	test -f packaging/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 	test -f assets/icons/tuned-circle-gauge.svg
+	test -f profiles/realtime/realtime-variables.conf
+	test -f profiles/realtime-virtual-guest/realtime-virtual-guest-variables.conf
+	test -f profiles/realtime-virtual-host/realtime-virtual-host-variables.conf
+	test -f profiles/cpu-partitioning/cpu-partitioning-variables.conf
+	test -f profiles/cpu-partitioning-powersave/cpu-partitioning-powersave-variables.conf
+	grep -q 'realtime-variables.conf' tuned-rs.spec
+	grep -q 'cpu-partitioning-variables.conf' tuned-rs.spec
 
 test:
 	cargo test --locked --all-targets
@@ -112,6 +119,11 @@ install-config:
 	install -D -m 0644 packaging/tuned-main.conf $(DESTDIR)$(ETCTUNEDDIR)/tuned-main.conf
 	install -D -m 0644 packaging/ppd.conf $(DESTDIR)$(ETCTUNEDDIR)/ppd.conf
 	install -D -m 0644 packaging/bootcmdline $(DESTDIR)$(ETCTUNEDDIR)/bootcmdline
+	install -D -m 0644 profiles/realtime/realtime-variables.conf $(DESTDIR)$(ETCTUNEDDIR)/realtime-variables.conf
+	install -D -m 0644 profiles/realtime-virtual-guest/realtime-virtual-guest-variables.conf $(DESTDIR)$(ETCTUNEDDIR)/realtime-virtual-guest-variables.conf
+	install -D -m 0644 profiles/realtime-virtual-host/realtime-virtual-host-variables.conf $(DESTDIR)$(ETCTUNEDDIR)/realtime-virtual-host-variables.conf
+	install -D -m 0644 profiles/cpu-partitioning/cpu-partitioning-variables.conf $(DESTDIR)$(ETCTUNEDDIR)/cpu-partitioning-variables.conf
+	install -D -m 0644 profiles/cpu-partitioning-powersave/cpu-partitioning-powersave-variables.conf $(DESTDIR)$(ETCTUNEDDIR)/cpu-partitioning-powersave-variables.conf
 	find $(DESTDIR)$(ETCTUNEDDIR)/profiles -type d -exec chmod 0755 {} + 2>/dev/null || true
 
 install-profiles:

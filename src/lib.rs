@@ -11,6 +11,7 @@ pub mod monitor;
 pub mod plugins;
 pub mod polkit;
 pub mod profile;
+mod profile_functions;
 pub mod profile_runtime;
 pub mod profile_units;
 pub mod rollback;
