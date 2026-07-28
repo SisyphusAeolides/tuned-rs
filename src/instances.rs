@@ -212,7 +212,7 @@ impl InstanceRegistry {
 pub fn supports_dynamic_instances(plugin_name: &str) -> bool {
     matches!(
         plugin_name,
-        "cpu" | "disk" | "irq" | "net" | "network" | "scsi_host" | "uncore"
+        "audio" | "cpu" | "disk" | "irq" | "net" | "network" | "scsi_host" | "uncore"
     )
 }
 

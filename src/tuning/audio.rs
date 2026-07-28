@@ -12,7 +12,7 @@ use crate::tuning::modifiers::read_trimmed;
 
 const AUDIO_MODULES: &[&str] = &["snd_hda_intel", "snd_ac97_codec"];
 
-pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
+pub fn apply_options(rollback: &Rollback, devices: &str, options: &PluginOptions) -> Result<()> {
     let timeout = option_value(options, "timeout")
         .unwrap_or("0")
         .parse::<i64>()
@@ -26,7 +26,11 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
         .unwrap_or(true);
 
     let mut updated = 0usize;
-    for module in AUDIO_MODULES {
+    let modules = crate::device_matcher::filter_names(
+        devices,
+        AUDIO_MODULES.iter().map(|module| (*module).to_string()),
+    );
+    for module in modules {
         let base = config::resolve_path(&format!("/sys/module/{module}/parameters"));
         let timeout_path = base.join("power_save");
         if timeout_path.is_file() {
@@ -123,11 +127,61 @@ fn parse_bool(raw: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn parses_upstream_boolean_spellings() {
         assert!(parse_bool("true").unwrap());
         assert!(!parse_bool("0").unwrap());
         assert!(parse_bool("sometimes").is_err());
+    }
+
+    #[test]
+    fn device_selector_limits_module_controls_and_rolls_back() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        for module in AUDIO_MODULES {
+            let parameters = root
+                .path()
+                .join("sys/module")
+                .join(module)
+                .join("parameters");
+            fs::create_dir_all(&parameters).unwrap();
+            fs::write(parameters.join("power_save"), "0").unwrap();
+            fs::write(parameters.join("power_save_controller"), "0").unwrap();
+        }
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let rollback = Rollback::load().unwrap();
+        let options = vec![
+            ("timeout".to_string(), "10".to_string()),
+            ("reset_controller".to_string(), "true".to_string()),
+        ];
+        apply_options(&rollback, "snd_hda_intel", &options).unwrap();
+        assert_eq!(
+            fs::read_to_string(
+                root.path()
+                    .join("sys/module/snd_hda_intel/parameters/power_save")
+            )
+            .unwrap(),
+            "10"
+        );
+        assert_eq!(
+            fs::read_to_string(
+                root.path()
+                    .join("sys/module/snd_ac97_codec/parameters/power_save")
+            )
+            .unwrap(),
+            "0"
+        );
+        rollback.restore_all().unwrap();
+        assert_eq!(
+            fs::read_to_string(
+                root.path()
+                    .join("sys/module/snd_hda_intel/parameters/power_save")
+            )
+            .unwrap(),
+            "0"
+        );
+        std::env::remove_var("TUNED_RS_ROOT");
     }
 }

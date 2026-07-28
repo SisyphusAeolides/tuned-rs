@@ -92,7 +92,7 @@ fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         ),
         "acpi" => apply_acpi_unit(rollback, unit),
         "net" | "network" => network::apply_options(rollback, &unit.devices, &unit.options),
-        "audio" => audio::apply_options(rollback, &unit.options),
+        "audio" => audio::apply_options(rollback, &unit.devices, &unit.options),
         "video" => video::apply_options(rollback, &unit.options),
         "scsi_host" => scsi_host::apply_options(rollback, &unit.devices, &unit.options),
         "selinux" => selinux::apply_options(rollback, &unit.options),
@@ -217,7 +217,16 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "cpu" | "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq" | "mounts"
+            "audio"
+                | "cpu"
+                | "disk"
+                | "scsi_host"
+                | "usb"
+                | "uncore"
+                | "net"
+                | "network"
+                | "irq"
+                | "mounts"
         )
     {
         bail!(

@@ -115,7 +115,16 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq" | "mounts"
+            "audio"
+                | "cpu"
+                | "disk"
+                | "scsi_host"
+                | "usb"
+                | "uncore"
+                | "net"
+                | "network"
+                | "irq"
+                | "mounts"
         )
     {
         issue(
@@ -319,14 +328,39 @@ fn verify_bootloader(unit: &ProfileUnit, report: &mut VerificationReport) {
 }
 
 fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {
-    let policies = matching_children(&rooted("/sys/devices/system/cpu/cpufreq"), |name| {
-        name.strip_prefix("policy")
-            .is_some_and(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
-    });
-    let cpus = matching_children(&rooted("/sys/devices/system/cpu"), |name| {
+    let all_cpus = matching_children(&rooted("/sys/devices/system/cpu"), |name| {
         name.strip_prefix("cpu")
             .is_some_and(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
     });
+    let selected_names = crate::device_matcher::filter_names(
+        &unit.devices,
+        all_cpus.iter().filter_map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        }),
+    );
+    let selected_names = selected_names
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    let cpus = all_cpus
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| selected_names.contains(name))
+        })
+        .collect::<Vec<_>>();
+    let policy_root = rooted("/sys/devices/system/cpu/cpufreq");
+    let policies = cpus
+        .iter()
+        .filter_map(|path| {
+            let cpu = path.file_name()?.to_str()?;
+            let id = cpu.strip_prefix("cpu")?;
+            let policy = policy_root.join(format!("policy{id}"));
+            policy.is_dir().then_some(policy)
+        })
+        .collect::<Vec<_>>();
 
     for (option, expected) in &unit.options {
         match option.as_str() {
@@ -738,7 +772,11 @@ fn verify_audio(unit: &ProfileUnit, report: &mut VerificationReport) {
         .and_then(parse_bool)
         .unwrap_or(true);
     let mut targets = Vec::new();
-    for module in ["snd_hda_intel", "snd_ac97_codec"] {
+    let modules = crate::device_matcher::filter_names(
+        &unit.devices,
+        ["snd_hda_intel", "snd_ac97_codec"].map(str::to_string),
+    );
+    for module in modules {
         let base = rooted(&format!("/sys/module/{module}/parameters"));
         let timeout_path = base.join("power_save");
         if timeout_path.is_file() {
