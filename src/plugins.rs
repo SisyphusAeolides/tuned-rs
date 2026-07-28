@@ -161,9 +161,49 @@ const ACPI_OPTIONS: &[PluginOption] = &[PluginOption {
 
 const NETWORK_OPTIONS: &[PluginOption] = &[
     PluginOption {
+        name: "dynamic",
+        default_value: "true",
+        hint: "Dynamic link-speed tuning switch.",
+    },
+    PluginOption {
+        name: "wake_on_lan",
+        default_value: "",
+        hint: "Wake-on-LAN mode passed to ethtool.",
+    },
+    PluginOption {
+        name: "features",
+        default_value: "",
+        hint: "Network feature name/value pairs managed with ethtool.",
+    },
+    PluginOption {
+        name: "coalesce",
+        default_value: "",
+        hint: "Interrupt coalescing name/value pairs managed with ethtool.",
+    },
+    PluginOption {
+        name: "pause",
+        default_value: "",
+        hint: "Pause-frame name/value pairs managed with ethtool.",
+    },
+    PluginOption {
+        name: "ring",
+        default_value: "",
+        hint: "Ring-buffer name/value pairs managed with ethtool.",
+    },
+    PluginOption {
         name: "channels",
         default_value: "",
         hint: "Per-interface RX, TX, other, or combined channel counts managed with ethtool.",
+    },
+    PluginOption {
+        name: "txqueuelen",
+        default_value: "",
+        hint: "Transmit queue length for selected interfaces.",
+    },
+    PluginOption {
+        name: "mtu",
+        default_value: "",
+        hint: "Maximum transmission unit for selected interfaces.",
     },
     PluginOption {
         name: "nf_conntrack_hashsize",

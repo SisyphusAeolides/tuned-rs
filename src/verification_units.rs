@@ -630,8 +630,19 @@ fn verify_acpi(unit: &ProfileUnit, report: &mut VerificationReport) {
 
 fn verify_network(unit: &ProfileUnit, report: &mut VerificationReport) {
     for (option, expected) in &unit.options {
-        if option == "channels" {
-            if !tuning::network::verify_channels(&unit.devices, expected, true) {
+        if matches!(
+            option.as_str(),
+            "features"
+                | "coalesce"
+                | "pause"
+                | "ring"
+                | "channels"
+                | "wake_on_lan"
+                | "mtu"
+                | "txqueuelen"
+                | "dynamic"
+        ) {
+            if !tuning::network::verify_device_option(&unit.devices, option, expected, true) {
                 issue(
                     report,
                     VerificationIssueKind::Mismatch,
@@ -640,7 +651,7 @@ fn verify_network(unit: &ProfileUnit, report: &mut VerificationReport) {
                     &unit.name,
                     expected,
                     None,
-                    "network channel settings do not match",
+                    "network device settings do not match",
                 );
             }
             continue;
