@@ -127,6 +127,11 @@ const DISK_OPTIONS: &[PluginOption] = &[
         hint: "Comma-separated block-device match expression.",
     },
     PluginOption {
+        name: "dynamic",
+        default_value: "true",
+        hint: "Dynamically adjust ATA power management from device utilization.",
+    },
+    PluginOption {
         name: "elevator",
         default_value: "",
         hint: "I/O scheduler selected for matching block devices.",
@@ -521,6 +526,11 @@ const EEEPC_SHE_OPTIONS: &[PluginOption] = &[
 ];
 
 const BOOTLOADER_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "cmdline",
+        default_value: "",
+        hint: "Kernel command-line arguments with TuneD add/remove semantics.",
+    },
     PluginOption {
         name: "skip_grub_config",
         default_value: "false",

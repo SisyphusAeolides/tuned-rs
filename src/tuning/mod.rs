@@ -258,6 +258,9 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
         {
             continue;
         }
+        if unit.plugin_type == "bootloader" && option.starts_with("cmdline") {
+            continue;
+        }
         if !descriptor
             .options
             .iter()

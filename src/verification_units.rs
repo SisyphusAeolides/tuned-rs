@@ -161,6 +161,9 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
             {
                 continue;
             }
+            if unit.plugin_type == "bootloader" && option.starts_with("cmdline") {
+                continue;
+            }
             if !descriptor
                 .options
                 .iter()
