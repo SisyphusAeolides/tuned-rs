@@ -270,6 +270,9 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
         "service" => crate::tuning::service::restore_state(target, original),
         "mount-barrier" => crate::tuning::mounts::restore_barrier(target, original),
         "script" => crate::tuning::script::run_rollback_script(Path::new(target), original),
+        "device-script-pre" | "device-script-post" => {
+            crate::tuning::script::run_device_rollback(Path::new(target), original)
+        }
         "hdparm-apm" => crate::tuning::disk::restore_hdparm("apm", target, original),
         "hdparm-spindown" => crate::tuning::disk::restore_hdparm("spindown", target, original),
         "net-channels" => crate::tuning::network::restore_channels(target, original),

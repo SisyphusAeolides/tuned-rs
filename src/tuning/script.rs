@@ -9,6 +9,11 @@ use tracing::{debug, info, warn};
 use crate::config;
 use crate::rollback::{rollback_key, Rollback};
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DeviceRollback {
+    devices: Vec<String>,
+}
+
 pub fn apply_scripts(rollback: &Rollback, raw: &str) -> Result<()> {
     for script in script_paths(raw) {
         let script = validate_script_path(&script)?;
@@ -51,6 +56,56 @@ pub fn run_rollback_script(path: &Path, action: &str) -> Result<()> {
     }
     let script = validate_script_path(path)?;
     run_script(&script, &[action])
+}
+
+pub fn apply_device_script(
+    rollback: &Rollback,
+    path: &Path,
+    phase: &str,
+    devices: &[String],
+) -> Result<()> {
+    if devices.is_empty() {
+        return Ok(());
+    }
+    if !matches!(phase, "pre" | "post") {
+        bail!("Invalid device-script phase '{phase}'");
+    }
+    let script = validate_script_path(path)?;
+    let encoded = serde_json::to_string(&DeviceRollback {
+        devices: devices.to_vec(),
+    })?;
+    rollback.record_original(
+        &rollback_key(&format!("device-script-{phase}"), &script.to_string_lossy()),
+        &encoded,
+    )?;
+    for device in devices {
+        run_script(&script, &["apply", device])?;
+    }
+    Ok(())
+}
+
+pub fn run_device_rollback(path: &Path, encoded: &str) -> Result<()> {
+    let script = validate_script_path(path)?;
+    let rollback: DeviceRollback = serde_json::from_str(encoded)?;
+    for device in rollback.devices.iter().rev() {
+        run_script(&script, &["unapply", "full_rollback", device])?;
+    }
+    Ok(())
+}
+
+pub fn verify_device_script(path: &Path, devices: &[String], ignore_missing: bool) -> bool {
+    let script = match validate_script_path(path) {
+        Ok(script) => script,
+        Err(_) => return ignore_missing,
+    };
+    devices.iter().all(|device| {
+        let mut arguments = vec!["verify"];
+        if ignore_missing {
+            arguments.push("ignore_missing");
+        }
+        arguments.push(device);
+        run_script(&script, &arguments).is_ok()
+    })
 }
 
 fn run_script(path: &Path, arguments: &[&str]) -> Result<()> {

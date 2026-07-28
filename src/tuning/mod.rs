@@ -52,6 +52,18 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
 }
 
 fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
+    let (resolved, devices) = resolve_unit_device_controls(unit)?;
+    if let Some(path) = unit.script_pre.as_deref() {
+        script::apply_device_script(rollback, std::path::Path::new(path), "pre", &devices)?;
+    }
+    apply_unit_inner(rollback, &resolved)?;
+    if let Some(path) = unit.script_post.as_deref() {
+        script::apply_device_script(rollback, std::path::Path::new(path), "post", &devices)?;
+    }
+    Ok(())
+}
+
+fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
     match unit.plugin_type.as_str() {
         "modules" => modules::apply_options(rollback, &unit.options),
         "cpu" => apply_cpu_unit(rollback, unit),
@@ -103,6 +115,41 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
     }
 }
 
+pub(crate) fn resolve_unit_device_controls(
+    unit: &ProfileUnit,
+) -> Result<(ProfileUnit, Vec<String>)> {
+    let mut resolved = unit.clone();
+    if unit.devices_udev_regex.is_none() && unit.script_pre.is_none() && unit.script_post.is_none()
+    {
+        return Ok((resolved, Vec::new()));
+    }
+    let subsystem = match unit.plugin_type.as_str() {
+        "cpu" => Some("cpu"),
+        "disk" => Some("block"),
+        "net" | "network" => Some("net"),
+        "scsi_host" => Some("scsi_host"),
+        "usb" => Some("usb"),
+        "video" => Some("drm"),
+        _ => None,
+    };
+    if unit.devices_udev_regex.is_some() && subsystem.is_none() {
+        bail!(
+            "Plugin '{}' does not support devices_udev_regex",
+            unit.plugin_type
+        );
+    }
+    let Some(subsystem) = subsystem else {
+        return Ok((resolved, Vec::new()));
+    };
+    let inventory =
+        crate::udev_filter::matching_names(subsystem, unit.devices_udev_regex.as_deref())?;
+    let devices = crate::device_matcher::filter_names(&unit.devices, inventory);
+    if unit.devices_udev_regex.is_some() {
+        resolved.devices = devices.join(",");
+    }
+    Ok((resolved, devices))
+}
+
 pub fn cleanup_runtime_resources() {
     eeepc_she::cleanup();
     scheduler::cleanup();
@@ -148,18 +195,6 @@ fn apply_acpi_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
 }
 
 fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
-    if unit.devices_udev_regex.is_some() {
-        bail!(
-            "Profile unit '{}' requires devices_udev_regex matching, which is not implemented yet",
-            unit.name
-        );
-    }
-    if unit.script_pre.is_some() || unit.script_post.is_some() {
-        bail!(
-            "Profile unit '{}' requires per-device script_pre/script_post hooks, which are not implemented yet",
-            unit.name
-        );
-    }
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),

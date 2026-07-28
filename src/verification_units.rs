@@ -29,8 +29,43 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
     };
 
     for unit in units {
+        let (unit, devices) = match tuning::resolve_unit_device_controls(&unit) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                issue(
+                    report,
+                    VerificationIssueKind::Unsupported,
+                    &unit.plugin_type,
+                    "device-controls",
+                    &unit.name,
+                    "valid device controls",
+                    None,
+                    error.to_string(),
+                );
+                continue;
+            }
+        };
         if !verify_contract(&unit, report) {
             continue;
+        }
+        for (phase, hook) in [
+            ("script_pre", unit.script_pre.as_deref()),
+            ("script_post", unit.script_post.as_deref()),
+        ] {
+            if hook.is_some_and(|path| {
+                !tuning::script::verify_device_script(Path::new(path), &devices, true)
+            }) {
+                issue(
+                    report,
+                    VerificationIssueKind::Mismatch,
+                    &unit.plugin_type,
+                    phase,
+                    &unit.name,
+                    "successful device-hook verification",
+                    None,
+                    "device hook verification failed",
+                );
+            }
         }
         match unit.plugin_type.as_str() {
             "modules" => verify_modules(&unit, report),
@@ -77,32 +112,6 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
 
 fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool {
     let mut valid = true;
-    if unit.devices_udev_regex.is_some() {
-        issue(
-            report,
-            VerificationIssueKind::Unsupported,
-            &unit.plugin_type,
-            "devices_udev_regex",
-            &unit.name,
-            unit.devices_udev_regex.as_deref().unwrap_or_default(),
-            None,
-            "udev property device selection is not implemented",
-        );
-        valid = false;
-    }
-    if unit.script_pre.is_some() || unit.script_post.is_some() {
-        issue(
-            report,
-            VerificationIssueKind::Unsupported,
-            &unit.plugin_type,
-            "device-hooks",
-            &unit.name,
-            "script_pre/script_post",
-            None,
-            "per-device pre/post hooks are not implemented",
-        );
-        valid = false;
-    }
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),

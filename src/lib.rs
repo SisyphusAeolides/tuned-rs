@@ -17,6 +17,7 @@ pub mod rollback;
 pub mod socket_signals;
 pub mod telemetry;
 pub mod tuning;
+pub mod udev_filter;
 pub mod verification;
 pub mod verification_sysfs;
 pub mod verification_units;
