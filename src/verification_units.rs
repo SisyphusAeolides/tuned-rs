@@ -55,6 +55,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "bootloader" => verify_bootloader(&unit, report),
             "script" => verify_script(&unit, report),
             "service" => verify_service(&unit, report),
+            "mounts" => verify_mounts(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
                     issue(
@@ -105,7 +106,7 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq"
+            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq" | "mounts"
         )
     {
         issue(
@@ -850,6 +851,21 @@ fn verify_service(unit: &ProfileUnit, report: &mut VerificationReport) {
             "configured service states and overlays",
             None,
             "one or more service states or configuration overlays differ",
+        );
+    }
+}
+
+fn verify_mounts(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::mounts::verify_options(&unit.devices, &unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "mounts",
+            "disable_barriers",
+            &unit.name,
+            "disabled barriers on selected ext filesystems",
+            None,
+            "one or more selected mount points still has barriers enabled",
         );
     }
 }

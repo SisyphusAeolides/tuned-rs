@@ -12,6 +12,7 @@ pub mod irq;
 pub mod irqbalance;
 pub mod modifiers;
 pub mod modules;
+pub mod mounts;
 pub mod network;
 pub mod rtentsk;
 pub mod scheduler;
@@ -89,6 +90,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             Ok(())
         }
         "service" => service::apply_options(rollback, &unit.options),
+        "mounts" => mounts::apply_options(rollback, &unit.devices, &unit.options),
         "gpu" => gpu::apply_gpu_options(rollback, &unit.options),
         "storage" => storage::apply_storage_options(rollback, &unit.options),
         "thermal" => thermal::apply_thermal_options(rollback, &unit.options),
@@ -158,7 +160,7 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq"
+            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq" | "mounts"
         )
     {
         bail!(

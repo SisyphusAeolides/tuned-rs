@@ -452,6 +452,12 @@ const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
 
 const SERVICE_OPTIONS: &[PluginOption] = &[];
 
+const MOUNTS_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "disable_barriers",
+    default_value: "",
+    hint: "Disable ext-filesystem barriers, optionally forcing write-back-cache devices.",
+}];
+
 const GPU_OPTIONS: &[PluginOption] = &[
     PluginOption {
         name: "amd_power_profile",
@@ -743,6 +749,11 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: SERVICE_OPTIONS,
     },
     PluginDescriptor {
+        name: "mounts",
+        documentation: "Controls ext-filesystem write barriers on selected mount points.",
+        options: MOUNTS_OPTIONS,
+    },
+    PluginDescriptor {
         name: "gpu",
         documentation: "Controls AMD and NVIDIA GPU power and clock policy.",
         options: GPU_OPTIONS,
@@ -856,6 +867,7 @@ mod tests {
             "bootloader",
             "script",
             "service",
+            "mounts",
             "gpu",
             "storage",
             "thermal",
