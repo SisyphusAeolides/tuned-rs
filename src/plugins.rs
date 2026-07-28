@@ -296,6 +296,19 @@ const IRQBALANCE_OPTIONS: &[PluginOption] = &[PluginOption {
     hint: "CPU list excluded from irqbalance IRQ placement.",
 }];
 
+const IRQ_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "affinity",
+        default_value: "",
+        hint: "CPU-list affinity applied to selected IRQ devices.",
+    },
+    PluginOption {
+        name: "mode",
+        default_value: "set",
+        hint: "Replace or intersect each IRQ's existing affinity.",
+    },
+];
+
 const SCHEDULER_OPTIONS: &[PluginOption] = &[
     PluginOption {
         name: "isolated_cores",
@@ -690,6 +703,11 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: IRQBALANCE_OPTIONS,
     },
     PluginDescriptor {
+        name: "irq",
+        documentation: "Controls individual and default kernel IRQ affinities.",
+        options: IRQ_OPTIONS,
+    },
+    PluginDescriptor {
         name: "rtentsk",
         documentation:
             "Keeps the kernel network timestamping static key enabled for the profile lifetime.",
@@ -824,6 +842,7 @@ mod tests {
             "systemd",
             "uncore",
             "irqbalance",
+            "irq",
             "rtentsk",
             "scheduler",
             "eeepc_she",

@@ -8,6 +8,7 @@ pub mod eeepc_she;
 pub mod generic_sysfs;
 pub mod gpu;
 pub mod hermes;
+pub mod irq;
 pub mod irqbalance;
 pub mod modifiers;
 pub mod modules;
@@ -75,6 +76,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "systemd" => systemd::apply_options(rollback, &unit.options),
         "uncore" => uncore::apply_options(rollback, &unit.devices, &unit.options),
         "irqbalance" => irqbalance::apply_options(rollback, &unit.options),
+        "irq" => irq::apply_options(rollback, &unit.devices, &unit.options),
         "rtentsk" => rtentsk::apply(),
         "scheduler" => scheduler::apply_options(rollback, &unit.options),
         "eeepc_she" => eeepc_she::apply(&unit.options),
@@ -154,7 +156,7 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network"
+            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq"
         )
     {
         bail!(

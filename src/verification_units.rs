@@ -48,6 +48,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "systemd" => verify_systemd(&unit, report),
             "uncore" => verify_uncore(&unit, report),
             "irqbalance" => verify_irqbalance(&unit, report),
+            "irq" => verify_irq(&unit, report),
             "rtentsk" => verify_rtentsk(&unit, report),
             "scheduler" => verify_scheduler(&unit, report),
             "eeepc_she" => verify_eeepc_she(&unit, report),
@@ -103,7 +104,7 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network"
+            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq"
         )
     {
         issue(
@@ -227,6 +228,21 @@ fn verify_irqbalance(unit: &ProfileUnit, report: &mut VerificationReport) {
             unit.option("banned_cpus").unwrap_or_default(),
             None,
             "irqbalance banned CPU list does not match",
+        );
+    }
+}
+
+fn verify_irq(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::irq::verify_options(&unit.devices, &unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "irq",
+            "affinity",
+            &unit.name,
+            option_value(&unit.options, "affinity").unwrap_or_default(),
+            None,
+            "one or more selected IRQ affinities do not match",
         );
     }
 }
