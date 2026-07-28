@@ -309,7 +309,7 @@ pub fn apply_dynamic_latency(options: &crate::profile::PluginOptions) -> Result<
     let high = resolve_latency(option_value(options, "latency_high").unwrap_or("1000"))?
         .ok_or_else(|| anyhow::anyhow!("latency_high cannot resolve to None"))?;
     let path = crate::config::resolve_path("/dev/cpu_dma_latency");
-    let file = match fs::OpenOptions::new().write(true).open(&path) {
+    let file = match fs::OpenOptions::new().write(true).open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
@@ -641,7 +641,7 @@ fn write_file_dir(
     path_for_entry: fn(&fs::DirEntry) -> PathBuf,
 ) -> Result<usize> {
     let base_path = crate::config::resolve_path(base);
-    let entries = match fs::read_dir(&base_path) {
+    let entries = match fs::read_dir(base_path) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(error) => return Err(error.into()),

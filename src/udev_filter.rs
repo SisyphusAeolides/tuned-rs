@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 
 use anyhow::Result;
 use regex::Regex;
@@ -10,7 +11,7 @@ pub fn matching_names(subsystem: &str, pattern: Option<&str>) -> Result<Vec<Stri
     enumerator.match_subsystem(subsystem)?;
     let mut names = BTreeSet::new();
     for device in enumerator.scan_devices()? {
-        if regex.as_ref().is_some_and(|regex| {
+        let rejected = regex.as_ref().is_some_and(|regex| {
             let mut properties = device
                 .properties()
                 .filter_map(|property| {
@@ -23,10 +24,13 @@ pub fn matching_names(subsystem: &str, pattern: Option<&str>) -> Result<Vec<Stri
             properties.sort_unstable();
             let text = properties
                 .into_iter()
-                .map(|(name, value)| format!("{name}={value}\n"))
-                .collect::<String>();
+                .fold(String::new(), |mut text, (name, value)| {
+                    let _ = writeln!(text, "{name}={value}");
+                    text
+                });
             !regex.is_match(&text)
-        }) {
+        });
+        if rejected {
             continue;
         }
         if let Some(name) = device.sysname().to_str() {
