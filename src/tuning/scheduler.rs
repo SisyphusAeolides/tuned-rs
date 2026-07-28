@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{bail, Result};
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
+use tracing::warn;
 
 use crate::config;
 use crate::profile::PluginOptions;
 use crate::profile_units::option_value;
 use crate::rollback::Rollback;
-use crate::tuning::{generic_sysfs, sysctl};
+use crate::tuning::{generic_sysfs, irq, sysctl};
 
 const KNOBS: &[(&str, &str, &str)] = &[
     ("sched_min_granularity_ns", "sched", "min_granularity_ns"),
@@ -54,12 +55,24 @@ struct ProcessSnapshot {
     pid: libc::pid_t,
     identity: String,
     affinity: Vec<u8>,
+    policy: i32,
+    priority: i32,
 }
 
 static RUNTIME: OnceLock<Mutex<Option<RuntimeState>>> = OnceLock::new();
 
+struct SchedulerRule {
+    rule_priority: i32,
+    order: usize,
+    policy: Option<i32>,
+    priority: Option<i32>,
+    affinity: Option<Vec<u8>>,
+    pattern: Regex,
+}
+
 pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
-    apply_isolation(options)?;
+    apply_isolation(rollback, options)?;
+    apply_groups(options)?;
     for (name, raw) in options {
         let Some((_, namespace, knob)) = KNOBS.iter().find(|(option, _, _)| option == name) else {
             continue;
@@ -83,12 +96,13 @@ pub fn cleanup() {
     };
     for snapshot in state.processes.into_iter().rev() {
         if process_identity(snapshot.pid).as_deref() == Some(snapshot.identity.as_str()) {
+            let _ = set_scheduler(snapshot.pid, snapshot.policy, snapshot.priority);
             let _ = set_affinity(snapshot.pid, &snapshot.affinity);
         }
     }
 }
 
-fn apply_isolation(options: &PluginOptions) -> Result<()> {
+fn apply_isolation(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
     let Some(isolated) = option_value(options, "isolated_cores") else {
         return Ok(());
     };
@@ -103,6 +117,7 @@ fn apply_isolation(options: &PluginOptions) -> Result<()> {
         bail!("isolated_cores cannot contain every online CPU");
     }
     let desired = affinity_mask(&housekeeping)?;
+    apply_irq_isolation(rollback, options, &housekeeping)?;
     let process_whitelist = regex_set(option_value(options, "ps_whitelist"))?;
     let process_blacklist = regex_set(option_value(options, "ps_blacklist"))?;
     let cgroup_blacklist = regex_set(option_value(options, "cgroup_ps_blacklist"))?;
@@ -140,15 +155,15 @@ fn apply_isolation(options: &PluginOptions) -> Result<()> {
         }) {
             continue;
         }
-        let original = match get_affinity(pid) {
-            Ok(affinity) => affinity,
+        let original = match snapshot_process(pid, identity) {
+            Ok(snapshot) => snapshot,
             Err(error) if vanished(&error) => continue,
             Err(error) => {
                 restore_processes(&state);
                 return Err(error);
             }
         };
-        if original == desired {
+        if original.affinity == desired {
             continue;
         }
         if let Err(error) = set_affinity(pid, &desired) {
@@ -158,19 +173,204 @@ fn apply_isolation(options: &PluginOptions) -> Result<()> {
             restore_processes(&state);
             return Err(error);
         }
-        state.processes.push(ProcessSnapshot {
-            pid,
-            identity,
-            affinity: original,
-        });
+        state.processes.push(original);
     }
     *runtime_slot().lock().unwrap() = Some(state);
     Ok(())
 }
 
+fn apply_irq_isolation(
+    rollback: &Rollback,
+    options: &PluginOptions,
+    housekeeping: &[u32],
+) -> Result<()> {
+    let process_irqs = option_value(options, "irq_process")
+        .map(parse_bool)
+        .transpose()?
+        .unwrap_or(true);
+    let affinity = format_cpu_list(housekeeping);
+    if process_irqs {
+        irq::apply_options(
+            rollback,
+            "irq*",
+            &vec![
+                ("affinity".to_string(), affinity.clone()),
+                ("mode".to_string(), "intersect".to_string()),
+            ],
+        )?;
+    }
+
+    match option_value(options, "default_irq_smp_affinity").unwrap_or("calc") {
+        "ignore" => Ok(()),
+        "calc" => irq::apply_options(
+            rollback,
+            "DEFAULT",
+            &vec![
+                ("affinity".to_string(), affinity),
+                ("mode".to_string(), "intersect".to_string()),
+            ],
+        ),
+        explicit => irq::apply_options(
+            rollback,
+            "DEFAULT",
+            &vec![
+                ("affinity".to_string(), explicit.to_string()),
+                ("mode".to_string(), "set".to_string()),
+            ],
+        ),
+    }
+}
+
+fn format_cpu_list(cpus: &[u32]) -> String {
+    cpus.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn apply_groups(options: &PluginOptions) -> Result<()> {
+    let mut rules = options
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, value))| name.starts_with("group.") && !value.trim().is_empty())
+        .map(|(order, (_, value))| parse_group_rule(value, order))
+        .collect::<Result<Vec<_>>>()?;
+    if rules.is_empty() {
+        return Ok(());
+    }
+    rules.sort_by_key(|rule| (rule.rule_priority, rule.order));
+    let process_kthreads = option_value(options, "kthread_process")
+        .map(parse_bool)
+        .transpose()?
+        .unwrap_or(true);
+    let mut state = runtime_slot().lock().unwrap().take().unwrap_or_default();
+    let own_pid = std::process::id() as libc::pid_t;
+    for pid in process_ids()? {
+        if pid == own_pid {
+            continue;
+        }
+        let Some(identity) = process_identity(pid) else {
+            continue;
+        };
+        if !process_kthreads && identity.starts_with('[') && identity.ends_with(']') {
+            continue;
+        }
+        let Some(rule) = rules.iter().rfind(|rule| rule.pattern.is_match(&identity)) else {
+            continue;
+        };
+        let existing = state
+            .processes
+            .iter()
+            .position(|snapshot| snapshot.pid == pid);
+        let snapshot = if let Some(index) = existing {
+            &state.processes[index]
+        } else {
+            match snapshot_process(pid, identity) {
+                Ok(snapshot) => {
+                    state.processes.push(snapshot);
+                    state.processes.last().expect("snapshot was just inserted")
+                }
+                Err(error) if vanished(&error) => continue,
+                Err(error) => {
+                    warn!("Cannot inspect scheduler state for PID {pid}: {error}");
+                    continue;
+                }
+            }
+        };
+        let policy = rule.policy.unwrap_or(snapshot.policy);
+        let priority = rule.priority.unwrap_or_else(|| {
+            if rule.policy.is_some() {
+                0
+            } else {
+                snapshot.priority
+            }
+        });
+        if rule.policy.is_some() || rule.priority.is_some() {
+            if let Err(error) = set_scheduler(pid, policy, priority) {
+                if !vanished(&error) {
+                    warn!("Cannot set scheduler policy for PID {pid}: {error}");
+                }
+            }
+        }
+        if let Some(affinity) = &rule.affinity {
+            if let Err(error) = set_affinity(pid, affinity) {
+                if !vanished(&error) {
+                    warn!("Cannot set scheduler affinity for PID {pid}: {error}");
+                }
+            }
+        }
+    }
+    *runtime_slot().lock().unwrap() = Some(state);
+    Ok(())
+}
+
+fn parse_group_rule(raw: &str, order: usize) -> Result<SchedulerRule> {
+    let fields = raw.splitn(5, ':').collect::<Vec<_>>();
+    if fields.len() != 5 {
+        bail!("Scheduler group rule must contain five colon-separated fields");
+    }
+    let rule_priority = fields[0].trim().parse::<i32>()?;
+    let policy = match fields[1].trim() {
+        "*" => None,
+        "f" => Some(libc::SCHED_FIFO),
+        "b" => Some(libc::SCHED_BATCH),
+        "r" => Some(libc::SCHED_RR),
+        "o" => Some(libc::SCHED_OTHER),
+        "i" => Some(libc::SCHED_IDLE),
+        value => bail!("Unknown scheduler group policy '{value}'"),
+    };
+    let priority = match fields[2].trim() {
+        "*" => None,
+        value => Some(value.parse::<i32>()?),
+    };
+    let affinity = match fields[3].trim() {
+        "*" => None,
+        value if value.starts_with("cgroup.") => {
+            bail!("Scheduler cgroup targets require cgroup initialization")
+        }
+        value => Some(parse_hex_affinity(value)?),
+    };
+    Ok(SchedulerRule {
+        rule_priority,
+        order,
+        policy,
+        priority,
+        affinity,
+        pattern: Regex::new(fields[4])?,
+    })
+}
+
+fn parse_hex_affinity(raw: &str) -> Result<Vec<u8>> {
+    let raw = raw.strip_prefix("0x").unwrap_or(raw);
+    let fields = raw.split(',').collect::<Vec<_>>();
+    let mut mask = vec![0u8; libc::CPU_SETSIZE as usize / 8];
+    let mut any = false;
+    for (group, field) in fields.iter().rev().enumerate() {
+        if field.is_empty() || field.len() > 8 {
+            bail!("Invalid scheduler hexadecimal affinity '{raw}'");
+        }
+        let bits = u32::from_str_radix(field, 16)?;
+        for bit in 0..32 {
+            if bits & (1 << bit) != 0 {
+                let cpu = group * 32 + bit;
+                if cpu >= mask.len() * 8 {
+                    bail!("Scheduler affinity exceeds CPU_SETSIZE");
+                }
+                mask[cpu / 8] |= 1 << (cpu % 8);
+                any = true;
+            }
+        }
+    }
+    if !any {
+        bail!("Scheduler affinity cannot be empty");
+    }
+    Ok(mask)
+}
+
 fn restore_processes(state: &RuntimeState) {
     for snapshot in state.processes.iter().rev() {
         if process_identity(snapshot.pid).as_deref() == Some(snapshot.identity.as_str()) {
+            let _ = set_scheduler(snapshot.pid, snapshot.policy, snapshot.priority);
             let _ = set_affinity(snapshot.pid, &snapshot.affinity);
         }
     }
@@ -181,11 +381,23 @@ fn runtime_slot() -> &'static Mutex<Option<RuntimeState>> {
 }
 
 fn process_ids() -> Result<Vec<libc::pid_t>> {
-    let mut pids = fs::read_dir(config::resolve_path("/proc"))?
-        .flatten()
-        .filter_map(|entry| entry.file_name().to_string_lossy().parse().ok())
-        .collect::<Vec<_>>();
+    let mut pids = Vec::new();
+    for entry in fs::read_dir(config::resolve_path("/proc"))?.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<libc::pid_t>() else {
+            continue;
+        };
+        match fs::read_dir(entry.path().join("task")) {
+            Ok(tasks) => pids.extend(tasks.flatten().filter_map(|task| {
+                task.file_name()
+                    .to_string_lossy()
+                    .parse::<libc::pid_t>()
+                    .ok()
+            })),
+            Err(_) => pids.push(pid),
+        }
+    }
     pids.sort_unstable();
+    pids.dedup();
     Ok(pids)
 }
 
@@ -203,6 +415,38 @@ fn process_identity(pid: libc::pid_t) -> Option<String> {
     fs::read_to_string(root.join("comm"))
         .ok()
         .map(|name| format!("[{}]", name.trim()))
+}
+
+fn snapshot_process(pid: libc::pid_t, identity: String) -> Result<ProcessSnapshot> {
+    let affinity = get_affinity(pid)?;
+    let policy = unsafe { libc::sched_getscheduler(pid) };
+    if policy < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let mut parameter = libc::sched_param { sched_priority: 0 };
+    let result = unsafe { libc::sched_getparam(pid, &mut parameter) };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(ProcessSnapshot {
+        pid,
+        identity,
+        affinity,
+        policy,
+        priority: parameter.sched_priority,
+    })
+}
+
+fn set_scheduler(pid: libc::pid_t, policy: i32, priority: i32) -> Result<()> {
+    let parameter = libc::sched_param {
+        sched_priority: priority,
+    };
+    let result = unsafe { libc::sched_setscheduler(pid, policy, &parameter) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().into())
+    }
 }
 
 fn get_affinity(pid: libc::pid_t) -> Result<Vec<u8>> {
@@ -447,5 +691,64 @@ mod tests {
             .unwrap();
         assert!(escaped.is_match("literal;semicolon"));
         assert!(escaped.is_match("postgres"));
+    }
+
+    #[test]
+    fn irq_isolation_intersects_affinities_and_rolls_back() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        let irq_root = root.path().join("proc/irq");
+        for irq in ["1", "2"] {
+            std::fs::create_dir_all(irq_root.join(irq)).unwrap();
+        }
+        std::fs::write(irq_root.join("1/smp_affinity"), "f").unwrap();
+        std::fs::write(irq_root.join("2/smp_affinity"), "2").unwrap();
+        std::fs::write(irq_root.join("default_smp_affinity"), "f").unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let rollback = Rollback::load().unwrap();
+
+        apply_irq_isolation(&rollback, &Vec::new(), &[0, 2]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(irq_root.join("1/smp_affinity")).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            std::fs::read_to_string(irq_root.join("2/smp_affinity")).unwrap(),
+            "5"
+        );
+        assert_eq!(
+            std::fs::read_to_string(irq_root.join("default_smp_affinity")).unwrap(),
+            "5"
+        );
+        rollback.restore_all().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(irq_root.join("1/smp_affinity")).unwrap(),
+            "f"
+        );
+        assert_eq!(
+            std::fs::read_to_string(irq_root.join("2/smp_affinity")).unwrap(),
+            "2"
+        );
+        assert_eq!(
+            std::fs::read_to_string(irq_root.join("default_smp_affinity")).unwrap(),
+            "f"
+        );
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn parses_ordered_scheduler_group_rules() {
+        let fifo = parse_group_rule(r"10:f:42:5:^worker:[0-9]+$", 3).unwrap();
+        assert_eq!(fifo.rule_priority, 10);
+        assert_eq!(fifo.order, 3);
+        assert_eq!(fifo.policy, Some(libc::SCHED_FIFO));
+        assert_eq!(fifo.priority, Some(42));
+        assert!(fifo.pattern.is_match("worker:12"));
+        let affinity = fifo.affinity.unwrap();
+        assert_eq!(affinity[0], 0b0000_0101);
+
+        assert!(parse_group_rule("0:x:0:*:.*", 0).is_err());
+        assert!(parse_group_rule("0:o:0:0:.*", 0).is_err());
+        assert!(parse_group_rule("missing-fields", 0).is_err());
     }
 }
