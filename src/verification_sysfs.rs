@@ -22,10 +22,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
         }
     };
 
-    for unit in units
-        .into_iter()
-        .filter(|unit| unit.plugin_type == "sysfs")
-    {
+    for unit in units.into_iter().filter(|unit| unit.plugin_type == "sysfs") {
         for (pattern, expected) in &unit.options {
             match generic_sysfs::expand_pattern(pattern) {
                 Ok(targets) if targets.is_empty() => push_issue(

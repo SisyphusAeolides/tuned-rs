@@ -43,6 +43,8 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "audio" => verify_audio(&unit, report),
             "video" => verify_video(&unit, report),
             "scsi_host" => verify_scsi_host(&unit, report),
+            "selinux" => verify_selinux(&unit, report),
+            "usb" => verify_usb(&unit, report),
             "script" => verify_script(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
@@ -91,7 +93,7 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
         );
         valid = false;
     }
-    if unit.devices != "*" && !matches!(unit.plugin_type.as_str(), "disk" | "scsi_host") {
+    if unit.devices != "*" && !matches!(unit.plugin_type.as_str(), "disk" | "scsi_host" | "usb") {
         issue(
             report,
             VerificationIssueKind::Unsupported,
@@ -140,6 +142,36 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
         }
     }
     valid
+}
+
+fn verify_selinux(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::selinux::verify_options(&unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "selinux",
+            "avc_cache_threshold",
+            &unit.name,
+            unit.option("avc_cache_threshold").unwrap_or_default(),
+            None,
+            "SELinux AVC cache threshold does not match",
+        );
+    }
+}
+
+fn verify_usb(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::usb::verify_options(&unit.devices, &unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "usb",
+            "autosuspend",
+            &unit.name,
+            unit.option("autosuspend").unwrap_or_default(),
+            None,
+            "USB autosuspend settings do not match",
+        );
+    }
 }
 
 fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {

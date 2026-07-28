@@ -159,11 +159,7 @@ mod tests {
     fn selectors_filter_the_supported_inventory() {
         let selected = device_matcher::filter_names(
             "sd* !sda",
-            vec![
-                "nvme0n1".to_string(),
-                "sdb".to_string(),
-                "sda".to_string(),
-            ],
+            vec!["nvme0n1".to_string(), "sdb".to_string(), "sda".to_string()],
         );
         assert_eq!(selected, ["sdb"]);
     }

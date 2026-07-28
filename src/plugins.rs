@@ -224,6 +224,18 @@ const SCSI_HOST_OPTIONS: &[PluginOption] = &[PluginOption {
     hint: "SATA Aggressive Link Power Management policy.",
 }];
 
+const SELINUX_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "avc_cache_threshold",
+    default_value: "",
+    hint: "Maximum number of entries retained in the SELinux access-vector cache.",
+}];
+
+const USB_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "autosuspend",
+    default_value: "",
+    hint: "USB autosuspend switch for matching USB devices.",
+}];
+
 const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
     name: "script",
     default_value: "",
@@ -452,6 +464,16 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: SCSI_HOST_OPTIONS,
     },
     PluginDescriptor {
+        name: "selinux",
+        documentation: "Controls the SELinux access-vector cache threshold.",
+        options: SELINUX_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "usb",
+        documentation: "Controls autosuspend for matching USB devices.",
+        options: USB_OPTIONS,
+    },
+    PluginDescriptor {
         name: "script",
         documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
         options: SCRIPT_OPTIONS,
@@ -557,6 +579,8 @@ mod tests {
             "audio",
             "video",
             "scsi_host",
+            "selinux",
+            "usb",
             "script",
             "gpu",
             "storage",
