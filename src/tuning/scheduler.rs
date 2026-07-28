@@ -1075,17 +1075,109 @@ fn vanished(error: &anyhow::Error) -> bool {
 }
 
 pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
+    if scheduler_rules(options).is_err() || validate_scheduler_controls(options).is_err() {
+        return false;
+    }
     options.iter().all(|(name, expected)| {
-        let Some((_, namespace, knob)) = KNOBS.iter().find(|(option, _, _)| option == name) else {
-            return true;
-        };
-        if validate_value(expected).is_err() {
-            return false;
+        if let Some((_, namespace, knob)) = KNOBS.iter().find(|(option, _, _)| option == name) {
+            if validate_value(expected).is_err() {
+                return false;
+            }
+            let Some(target) = resolve_knob(namespace, knob) else {
+                return ignore_missing;
+            };
+            return std::fs::read_to_string(target)
+                .is_ok_and(|actual| actual.trim() == expected.trim());
         }
-        let Some(target) = resolve_knob(namespace, knob) else {
-            return ignore_missing;
-        };
-        std::fs::read_to_string(target).is_ok_and(|actual| actual.trim() == expected.trim())
+        known_control(name)
+    }) && verify_cgroup_controls(options, ignore_missing)
+}
+
+fn known_control(name: &str) -> bool {
+    name.starts_with("group.")
+        || name.starts_with("cgroup.")
+        || matches!(
+            name,
+            "isolated_cores"
+                | "cgroup_mount_point"
+                | "cgroup_mount_point_init"
+                | "cgroup_groups_init"
+                | "cgroup_for_isolated_cores"
+                | "cgroup_ps_blacklist"
+                | "ps_whitelist"
+                | "ps_blacklist"
+                | "kthread_process"
+                | "irq_process"
+                | "default_irq_smp_affinity"
+                | "perf_mmap_pages"
+                | "perf_process_fork"
+                | "runtime"
+        )
+}
+
+fn validate_scheduler_controls(options: &PluginOptions) -> Result<()> {
+    if let Some(value) = option_value(options, "isolated_cores") {
+        parse_cpu_list(value)?;
+    }
+    if let Some(value) = option_value(options, "cgroup_mount_point") {
+        resolve_cgroup_root(value)?;
+    }
+    if let Some(value) =
+        option_value(options, "cgroup_for_isolated_cores").filter(|value| !value.trim().is_empty())
+    {
+        sanitize_cgroup_name(value)?;
+    }
+    for (name, value) in options {
+        if name.starts_with("cgroup.") && !value.trim().is_empty() {
+            sanitize_cgroup_name(name.trim_start_matches("cgroup."))?;
+            parse_cpu_list(value)?;
+        }
+    }
+    for name in ["cgroup_ps_blacklist", "ps_whitelist", "ps_blacklist"] {
+        regex_set(option_value(options, name))?;
+    }
+    for name in [
+        "cgroup_mount_point_init",
+        "cgroup_groups_init",
+        "kthread_process",
+        "irq_process",
+        "perf_process_fork",
+        "runtime",
+    ] {
+        if let Some(value) = option_value(options, name) {
+            parse_bool(value)?;
+        }
+    }
+    if let Some(value) = option_value(options, "default_irq_smp_affinity") {
+        if !matches!(value.trim(), "calc" | "ignore") {
+            parse_cpu_list(value)?;
+        }
+    }
+    if let Some(value) = option_value(options, "perf_mmap_pages").filter(|v| !v.trim().is_empty()) {
+        let pages = value.trim().parse::<u32>()?;
+        if pages == 0 || pages.checked_next_power_of_two().is_none() {
+            bail!("perf_mmap_pages must be a positive representable power-of-two size");
+        }
+    }
+    Ok(())
+}
+
+fn verify_cgroup_controls(options: &PluginOptions, ignore_missing: bool) -> bool {
+    let groups = options
+        .iter()
+        .filter(|(name, value)| name.starts_with("cgroup.") && !value.trim().is_empty())
+        .filter_map(|(name, _)| sanitize_cgroup_name(name.trim_start_matches("cgroup.")).ok())
+        .collect::<Vec<_>>();
+    if groups.is_empty() {
+        return true;
+    }
+    let root = option_value(options, "cgroup_mount_point").unwrap_or("/sys/fs/cgroup/cpuset");
+    let Ok(root) = resolve_cgroup_root(root) else {
+        return false;
+    };
+    groups.into_iter().all(|group| {
+        let path = root.join(group);
+        path.is_dir() || ignore_missing
     })
 }
 
@@ -1316,5 +1408,25 @@ mod tests {
         assert!(monitor_slot().lock().unwrap().is_some());
         stop_runtime_monitor();
         assert!(monitor_slot().lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn verification_rejects_invalid_non_knob_controls() {
+        assert!(!verify_options(
+            &vec![("runtime".to_string(), "perhaps".to_string())],
+            true
+        ));
+        assert!(!verify_options(
+            &vec![("group.bad".to_string(), "malformed".to_string())],
+            true
+        ));
+        assert!(!verify_options(
+            &vec![("cgroup../escape".to_string(), "0-3".to_string())],
+            true
+        ));
+        assert!(!verify_options(
+            &vec![("not_an_option".to_string(), "1".to_string())],
+            true
+        ));
     }
 }
