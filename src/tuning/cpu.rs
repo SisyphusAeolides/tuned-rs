@@ -139,7 +139,7 @@ pub fn apply_boost(rollback: &Rollback, raw: &str) -> Result<()> {
         }
     }
 
-    let no_turbo = Path::new(CPU_BASE).join("intel_pstate/no_turbo");
+    let no_turbo = crate::config::resolve_path(CPU_BASE).join("intel_pstate/no_turbo");
     if no_turbo.is_file() {
         write_cpu_node(rollback, &no_turbo, no_turbo_value)?;
         updated += 1;
@@ -190,7 +190,7 @@ pub fn apply_sampling_down_factor(rollback: &Rollback, raw: &str) -> Result<()> 
         }
     }
     for governor in governors {
-        let target = Path::new(CPUFREQ_BASE)
+        let target = crate::config::resolve_path(CPUFREQ_BASE)
             .join(governor)
             .join("sampling_down_factor");
         if target.is_file() {
@@ -407,7 +407,9 @@ fn apply_pstate_percentage(rollback: &Rollback, leaf: &str, raw: &str) -> Result
 
     let mut updated = 0usize;
     for driver in ["intel_pstate", "amd_pstate"] {
-        let target = Path::new(CPU_BASE).join(driver).join(leaf);
+        let target = crate::config::resolve_path(CPU_BASE)
+            .join(driver)
+            .join(leaf);
         if target.is_file() {
             write_cpu_node(rollback, &target, &value.to_string())?;
             updated += 1;
@@ -454,7 +456,7 @@ fn fallback_values(raw: &str) -> Result<Vec<String>> {
 }
 
 fn read_available_values(base: &str, leaf: &str) -> Result<String> {
-    for policy in policy_directories_in(Path::new(base))? {
+    for policy in policy_directories_in(&crate::config::resolve_path(base))? {
         let path = policy.join(leaf);
         if path.is_file() {
             return read_trimmed(&path);
@@ -464,7 +466,7 @@ fn read_available_values(base: &str, leaf: &str) -> Result<String> {
 }
 
 fn policy_directories() -> Result<Vec<PathBuf>> {
-    policy_directories_in(Path::new(CPUFREQ_BASE))
+    policy_directories_in(&crate::config::resolve_path(CPUFREQ_BASE))
 }
 
 fn policy_directories_in(base: &Path) -> Result<Vec<PathBuf>> {
@@ -489,7 +491,7 @@ fn policy_directories_in(base: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn cpu_directories() -> Result<Vec<PathBuf>> {
-    let entries = match fs::read_dir(CPU_BASE) {
+    let entries = match fs::read_dir(crate::config::resolve_path(CPU_BASE)) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
@@ -537,8 +539,8 @@ fn write_file_dir(
     value: &str,
     path_for_entry: fn(&fs::DirEntry) -> PathBuf,
 ) -> Result<usize> {
-    let base_path = Path::new(base);
-    let entries = match fs::read_dir(base_path) {
+    let base_path = crate::config::resolve_path(base);
+    let entries = match fs::read_dir(&base_path) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(error) => return Err(error.into()),
@@ -646,6 +648,35 @@ mod tests {
         assert_eq!(resolve_latency("cstate.id:2|10").unwrap(), Some(25));
         assert_eq!(resolve_latency("cstate.name:missing|10").unwrap(), Some(10));
         assert_eq!(resolve_latency("cstate.name:missing|None").unwrap(), None);
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn governor_apply_and_rollback_stay_below_the_resolved_sysfs_root() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        let policy = root.path().join("sys/devices/system/cpu/cpufreq/policy0");
+        fs::create_dir_all(&policy).unwrap();
+        fs::write(
+            policy.join("scaling_available_governors"),
+            "performance powersave",
+        )
+        .unwrap();
+        fs::write(policy.join("scaling_governor"), "powersave").unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+
+        let rollback = Rollback::load().unwrap();
+        apply_governor(&rollback, "performance").unwrap();
+        assert_eq!(
+            fs::read_to_string(policy.join("scaling_governor")).unwrap(),
+            "performance"
+        );
+        rollback.restore_all().unwrap();
+        assert_eq!(
+            fs::read_to_string(policy.join("scaling_governor")).unwrap(),
+            "powersave"
+        );
+
         std::env::remove_var("TUNED_RS_ROOT");
     }
 
