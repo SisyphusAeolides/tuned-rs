@@ -175,6 +175,24 @@ pub fn unix_socket_signal_paths() -> Vec<PathBuf> {
         .collect()
 }
 
+pub fn default_instance_priority() -> i32 {
+    global_config_value("default_instance_priority")
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+pub fn daemon_enabled() -> bool {
+    global_config_value("daemon")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
+pub fn dbus_enabled() -> bool {
+    global_config_value("enable_dbus")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
 fn global_config_value(key: &str) -> Option<String> {
     let path = resolve_path(GLOBAL_CONFIG_FILE);
     let mut ini = configparser::ini::Ini::new();

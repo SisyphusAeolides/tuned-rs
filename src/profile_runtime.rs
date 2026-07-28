@@ -105,7 +105,12 @@ pub fn active_units(profile: &Profile) -> Result<Vec<ProfileUnit>> {
                 continue;
             }
         }
-        active.push((unit.priority.unwrap_or(0), index, unit));
+        active.push((
+            unit.priority
+                .unwrap_or_else(crate::config::default_instance_priority),
+            index,
+            unit,
+        ));
     }
 
     active.sort_by_key(|(priority, index, _)| (*priority, *index));

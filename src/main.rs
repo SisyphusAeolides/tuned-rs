@@ -26,9 +26,21 @@ async fn main() -> Result<()> {
     let rollback = std::sync::Arc::new(rollback::Rollback::load()?);
     let daemon = daemon::Daemon::new(catalog, rollback);
 
+    if !config::daemon_enabled() {
+        if !daemon.start().await? {
+            anyhow::bail!("One-shot TuneD profile application failed");
+        }
+        info!("One-shot TuneD profile application completed");
+        return Ok(());
+    }
+
     let (tx, mut rx) = mpsc::channel::<DaemonEvent>(32);
     monitor::spawn_power_monitor(tx)?;
-    let _dbus_conn = ipc::spawn_server(daemon.clone()).await?;
+    let _dbus_conn = if config::dbus_enabled() {
+        Some(ipc::spawn_server(daemon.clone()).await?)
+    } else {
+        None
+    };
     let _unix_socket = unix_socket::spawn(daemon.clone())?;
 
     if !daemon.start().await? {

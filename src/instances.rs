@@ -53,7 +53,7 @@ impl InstanceRegistry {
                 Ok(priority) => priority,
                 Err(_) => return (false, "Invalid priority".to_string()),
             },
-            None => 0,
+            None => crate::config::default_instance_priority(),
         };
 
         let transfers = match self.plan_transfers(plugin_name, &devices, false) {
