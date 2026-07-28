@@ -103,6 +103,44 @@ pub fn update_interval() -> std::time::Duration {
     std::time::Duration::from_secs(seconds)
 }
 
+pub fn unix_socket_enabled() -> bool {
+    global_config_value("enable_unix_socket").is_some_and(|value| tuned_bool(&value))
+}
+
+pub fn unix_socket_path() -> PathBuf {
+    resolve_path_buf(
+        global_config_value("unix_socket_path")
+            .as_deref()
+            .unwrap_or("/run/tuned/tuned.sock"),
+    )
+}
+
+pub fn unix_socket_permissions() -> u32 {
+    global_config_value("unix_socket_permissions")
+        .and_then(|value| {
+            let value = value.trim().trim_start_matches("0o");
+            u32::from_str_radix(value, 8).ok()
+        })
+        .filter(|mode| *mode <= 0o777)
+        .unwrap_or(0o600)
+}
+
+pub fn unix_socket_backlog() -> u32 {
+    global_config_value("connections_backlog")
+        .and_then(|value| value.trim().parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1024)
+}
+
+pub fn unix_socket_signal_paths() -> Vec<PathBuf> {
+    global_config_value("unix_socket_signal_paths")
+        .map(|value| split_path_list(&value))
+        .unwrap_or_default()
+        .into_iter()
+        .map(resolve_path_buf)
+        .collect()
+}
+
 fn global_config_value(key: &str) -> Option<String> {
     let path = resolve_path(GLOBAL_CONFIG_FILE);
     let mut ini = configparser::ini::Ini::new();

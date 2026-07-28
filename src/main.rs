@@ -3,7 +3,9 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
-use tuned_rs::{config, daemon, ipc, log_capture, monitor, profile, rollback, DaemonEvent};
+use tuned_rs::{
+    config, daemon, ipc, log_capture, monitor, profile, rollback, unix_socket, DaemonEvent,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,6 +29,7 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<DaemonEvent>(32);
     monitor::spawn_power_monitor(tx)?;
     let _dbus_conn = ipc::spawn_server(daemon.clone()).await?;
+    let _unix_socket = unix_socket::spawn(daemon.clone())?;
 
     if !daemon.start().await? {
         warn!("Daemon started without applying a profile");

@@ -38,7 +38,9 @@ impl Daemon {
             instances: Mutex::new(InstanceRegistry::default()),
             instance_rollbacks: Mutex::new(HashMap::new()),
             instance_order: Mutex::new(Vec::new()),
-            signal_paths: Mutex::new(SignalRegistry::default()),
+            signal_paths: Mutex::new(SignalRegistry::from_paths(
+                config::unix_socket_signal_paths(),
+            )),
         })
     }
 

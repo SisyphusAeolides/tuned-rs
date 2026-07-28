@@ -11,6 +11,14 @@ pub struct SignalRegistry {
 }
 
 impl SignalRegistry {
+    pub fn from_paths(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        let mut registry = Self::default();
+        for path in paths {
+            registry.register(path);
+        }
+        registry
+    }
+
     pub fn register(&mut self, path: impl AsRef<Path>) -> bool {
         let path = path.as_ref();
         if path.as_os_str().is_empty() {
