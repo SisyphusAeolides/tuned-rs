@@ -11,8 +11,8 @@ use crate::profile_units::option_value;
 use crate::rollback::{rollback_key, Rollback};
 use crate::tuning::modifiers::read_trimmed;
 
-pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
-    let devices = drm_devices()?;
+pub fn apply_options(rollback: &Rollback, selector: &str, options: &PluginOptions) -> Result<()> {
+    let devices = selected_drm_devices(selector)?;
     if let Some(raw) = option_value(options, "radeon_powersave") {
         apply_radeon_powersave(rollback, &devices, raw)?;
     }
@@ -22,8 +22,8 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
     Ok(())
 }
 
-pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
-    let devices = match drm_devices() {
+pub fn verify_options(selector: &str, options: &PluginOptions, ignore_missing: bool) -> bool {
+    let devices = match selected_drm_devices(selector) {
         Ok(devices) => devices,
         Err(error) => {
             warn!("Cannot enumerate DRM devices: {error}");
@@ -262,6 +262,28 @@ fn drm_devices() -> Result<Vec<PathBuf>> {
     Ok(devices.into_iter().collect())
 }
 
+fn selected_drm_devices(selector: &str) -> Result<Vec<PathBuf>> {
+    let devices = drm_devices()?;
+    let selected = crate::device_matcher::filter_names(
+        selector,
+        devices.iter().filter_map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        }),
+    )
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    Ok(devices
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| selected.contains(name))
+        })
+        .collect())
+}
+
 fn radeon_candidates(raw: &str) -> Vec<String> {
     raw.split(|character: char| character.is_whitespace() || matches!(character, ',' | ';' | ':'))
         .map(str::trim)
@@ -310,6 +332,7 @@ fn write_node(rollback: &Rollback, path: &Path, value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn parses_radeon_fallbacks_in_profile_order() {
@@ -324,5 +347,39 @@ mod tests {
     fn validates_panel_power_range() {
         assert_eq!(panel_level("4").unwrap(), 4);
         assert!(panel_level("5").is_err());
+    }
+
+    #[test]
+    fn device_selector_limits_panel_controls_and_rolls_back() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        for connector in ["card0-eDP-1", "card1-eDP-1"] {
+            let amdgpu = root
+                .path()
+                .join("sys/class/drm")
+                .join(connector)
+                .join("amdgpu");
+            fs::create_dir_all(&amdgpu).unwrap();
+            fs::write(amdgpu.join("panel_power_savings"), "0").unwrap();
+        }
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let rollback = Rollback::load().unwrap();
+        let options = vec![("panel_power_savings".to_string(), "4".to_string())];
+        apply_options(&rollback, "card1-*", &options).unwrap();
+        let drm = root.path().join("sys/class/drm");
+        assert_eq!(
+            fs::read_to_string(drm.join("card0-eDP-1/amdgpu/panel_power_savings")).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            fs::read_to_string(drm.join("card1-eDP-1/amdgpu/panel_power_savings")).unwrap(),
+            "4"
+        );
+        rollback.restore_all().unwrap();
+        assert_eq!(
+            fs::read_to_string(drm.join("card1-eDP-1/amdgpu/panel_power_savings")).unwrap(),
+            "0"
+        );
+        std::env::remove_var("TUNED_RS_ROOT");
     }
 }

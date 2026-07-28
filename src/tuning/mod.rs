@@ -93,7 +93,7 @@ fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "acpi" => apply_acpi_unit(rollback, unit),
         "net" | "network" => network::apply_options(rollback, &unit.devices, &unit.options),
         "audio" => audio::apply_options(rollback, &unit.devices, &unit.options),
-        "video" => video::apply_options(rollback, &unit.options),
+        "video" => video::apply_options(rollback, &unit.devices, &unit.options),
         "scsi_host" => scsi_host::apply_options(rollback, &unit.devices, &unit.options),
         "selinux" => selinux::apply_options(rollback, &unit.options),
         "usb" => usb::apply_options(rollback, &unit.devices, &unit.options),
@@ -223,6 +223,7 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
                 | "scsi_host"
                 | "usb"
                 | "uncore"
+                | "video"
                 | "net"
                 | "network"
                 | "irq"

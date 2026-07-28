@@ -121,6 +121,7 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
                 | "scsi_host"
                 | "usb"
                 | "uncore"
+                | "video"
                 | "net"
                 | "network"
                 | "irq"
@@ -806,7 +807,7 @@ fn verify_audio(unit: &ProfileUnit, report: &mut VerificationReport) {
 }
 
 fn verify_video(unit: &ProfileUnit, report: &mut VerificationReport) {
-    let result = tuning::video::verify_options(&unit.options, false);
+    let result = tuning::video::verify_options(&unit.devices, &unit.options, false);
     report.checked += 1;
     if !result {
         report.issues.push(VerificationIssue {
