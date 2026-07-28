@@ -16,6 +16,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev pkg-config
+
       - name: Install Rust 1.75
         run: rustup toolchain install 1.75.0 --profile minimal --component clippy,rustfmt
 
