@@ -1,5 +1,6 @@
 pub mod config;
 pub mod daemon;
+pub mod device_matcher;
 pub mod dynamic;
 pub mod engine;
 pub mod hal;
