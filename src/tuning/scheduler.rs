@@ -1,7 +1,11 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use anyhow::{bail, Result};
 use regex::{Regex, RegexSet};
@@ -80,6 +84,14 @@ struct ProcessSnapshot {
 
 static RUNTIME: OnceLock<Mutex<Option<RuntimeState>>> = OnceLock::new();
 
+struct MonitorState {
+    stop: Arc<AtomicBool>,
+    worker: JoinHandle<()>,
+}
+
+static MONITOR: OnceLock<Mutex<Option<MonitorState>>> = OnceLock::new();
+
+#[derive(Clone)]
 struct SchedulerRule {
     rule_priority: i32,
     order: usize,
@@ -109,10 +121,12 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
             generic_sysfs::apply_options(rollback, &vec![(logical_path(&target), raw.clone())])?;
         }
     }
+    start_runtime_monitor(options)?;
     Ok(())
 }
 
 pub fn cleanup() {
+    stop_runtime_monitor();
     let Some(mut state) = runtime_slot().lock().unwrap().take() else {
         return;
     };
@@ -521,16 +535,10 @@ fn original_tasks_file(root: &Path, pid: libc::pid_t) -> Result<PathBuf> {
 }
 
 fn apply_groups(options: &PluginOptions) -> Result<()> {
-    let mut rules = options
-        .iter()
-        .enumerate()
-        .filter(|(_, (name, value))| name.starts_with("group.") && !value.trim().is_empty())
-        .map(|(order, (_, value))| parse_group_rule(value, order))
-        .collect::<Result<Vec<_>>>()?;
+    let rules = scheduler_rules(options)?;
     if rules.is_empty() {
         return Ok(());
     }
-    rules.sort_by_key(|rule| (rule.rule_priority, rule.order));
     let process_kthreads = option_value(options, "kthread_process")
         .map(parse_bool)
         .transpose()?
@@ -604,6 +612,199 @@ fn apply_groups(options: &PluginOptions) -> Result<()> {
     }
     *runtime_slot().lock().unwrap() = Some(state);
     Ok(())
+}
+
+fn scheduler_rules(options: &PluginOptions) -> Result<Vec<SchedulerRule>> {
+    let mut rules = options
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, value))| name.starts_with("group.") && !value.trim().is_empty())
+        .map(|(order, (_, value))| parse_group_rule(value, order))
+        .collect::<Result<Vec<_>>>()?;
+    rules.sort_by_key(|rule| (rule.rule_priority, rule.order));
+    Ok(rules)
+}
+
+#[derive(Clone)]
+struct RuntimePolicy {
+    isolation_affinity: Option<Vec<u8>>,
+    isolation_cgroup: Option<String>,
+    whitelist: Option<RegexSet>,
+    blacklist: Option<RegexSet>,
+    cgroup_blacklist: Option<RegexSet>,
+    process_kthreads: bool,
+    rules: Vec<SchedulerRule>,
+}
+
+fn start_runtime_monitor(options: &PluginOptions) -> Result<()> {
+    stop_runtime_monitor();
+    if !option_value(options, "runtime")
+        .map(parse_bool)
+        .transpose()?
+        .unwrap_or(true)
+    {
+        return Ok(());
+    }
+    if let Some(raw) = option_value(options, "perf_mmap_pages").filter(|raw| !raw.trim().is_empty())
+    {
+        let pages = raw.trim().parse::<u32>()?;
+        if pages == 0 {
+            bail!("perf_mmap_pages must be greater than zero");
+        }
+        let _rounded_pages = pages
+            .checked_next_power_of_two()
+            .ok_or_else(|| anyhow::anyhow!("perf_mmap_pages is too large"))?;
+    }
+    option_value(options, "perf_process_fork")
+        .map(parse_bool)
+        .transpose()?;
+    let policy = runtime_policy(options)?;
+    if policy.isolation_affinity.is_none()
+        && policy.isolation_cgroup.is_none()
+        && policy.rules.is_empty()
+    {
+        return Ok(());
+    }
+    let mut known = process_ids()?.into_iter().collect::<HashSet<_>>();
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = Arc::clone(&stop);
+    let worker = thread::Builder::new()
+        .name("tuned-rs-scheduler".to_string())
+        .spawn(move || {
+            while !worker_stop.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(250));
+                let Ok(current) = process_ids() else {
+                    continue;
+                };
+                let current = current.into_iter().collect::<HashSet<_>>();
+                for pid in current.difference(&known).copied() {
+                    if let Err(error) = tune_runtime_task(pid, &policy) {
+                        if !vanished(&error) {
+                            warn!("Cannot tune new scheduler task {pid}: {error}");
+                        }
+                    }
+                }
+                known = current;
+            }
+        })?;
+    *monitor_slot().lock().unwrap() = Some(MonitorState { stop, worker });
+    Ok(())
+}
+
+fn runtime_policy(options: &PluginOptions) -> Result<RuntimePolicy> {
+    let isolation_cgroup = option_value(options, "cgroup_for_isolated_cores")
+        .filter(|value| !value.trim().is_empty())
+        .map(sanitize_cgroup_name)
+        .transpose()?
+        .map(|path| path.to_string_lossy().into_owned());
+    let isolation_affinity = if isolation_cgroup.is_none() {
+        option_value(options, "isolated_cores")
+            .map(|isolated| {
+                let online =
+                    read_cpu_list(&config::resolve_path("/sys/devices/system/cpu/online"))?;
+                let isolated = parse_cpu_list(isolated)?;
+                let housekeeping = online
+                    .into_iter()
+                    .filter(|cpu| isolated.binary_search(cpu).is_err())
+                    .collect::<Vec<_>>();
+                affinity_mask(&housekeeping)
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    Ok(RuntimePolicy {
+        isolation_affinity,
+        isolation_cgroup,
+        whitelist: regex_set(option_value(options, "ps_whitelist"))?,
+        blacklist: regex_set(option_value(options, "ps_blacklist"))?,
+        cgroup_blacklist: regex_set(option_value(options, "cgroup_ps_blacklist"))?,
+        process_kthreads: option_value(options, "kthread_process")
+            .map(parse_bool)
+            .transpose()?
+            .unwrap_or(true),
+        rules: scheduler_rules(options)?,
+    })
+}
+
+fn tune_runtime_task(pid: libc::pid_t, policy: &RuntimePolicy) -> Result<()> {
+    if pid == std::process::id() as libc::pid_t {
+        return Ok(());
+    }
+    let Some(identity) = process_identity(pid) else {
+        return Ok(());
+    };
+    if !policy.process_kthreads && identity.starts_with('[') && identity.ends_with(']') {
+        return Ok(());
+    }
+    if policy
+        .whitelist
+        .as_ref()
+        .is_some_and(|set| !set.is_match(&identity))
+        || policy
+            .blacklist
+            .as_ref()
+            .is_some_and(|set| set.is_match(&identity))
+        || policy.cgroup_blacklist.as_ref().is_some_and(|set| {
+            fs::read_to_string(config::resolve_path(&format!("/proc/{pid}/cgroup")))
+                .is_ok_and(|cgroup| set.is_match(&cgroup))
+        })
+    {
+        return Ok(());
+    }
+    let snapshot = snapshot_process(pid, identity.clone())?;
+    let original_policy = snapshot.policy;
+    let original_priority = snapshot.priority;
+    let mut runtime = runtime_slot().lock().unwrap();
+    let state = runtime.get_or_insert_with(RuntimeState::default);
+    if !state
+        .processes
+        .iter()
+        .any(|existing| existing.pid == pid && existing.identity == identity)
+    {
+        state.processes.push(snapshot);
+    }
+    if let Some(group) = &policy.isolation_cgroup {
+        move_task_to_cgroup(state, pid, &identity, group)?;
+    } else if let Some(affinity) = &policy.isolation_affinity {
+        set_affinity(pid, affinity)?;
+    }
+    if let Some(rule) = policy
+        .rules
+        .iter()
+        .rfind(|rule| rule.pattern.is_match(&identity))
+    {
+        if rule.policy.is_some() || rule.priority.is_some() {
+            set_scheduler(
+                pid,
+                rule.policy.unwrap_or(original_policy),
+                rule.priority.unwrap_or(if rule.policy.is_some() {
+                    0
+                } else {
+                    original_priority
+                }),
+            )?;
+        }
+        if let Some(affinity) = &rule.affinity {
+            set_affinity(pid, affinity)?;
+        }
+        if let Some(group) = &rule.cgroup {
+            move_task_to_cgroup(state, pid, &identity, group)?;
+        }
+    }
+    Ok(())
+}
+
+fn stop_runtime_monitor() {
+    let Some(monitor) = monitor_slot().lock().unwrap().take() else {
+        return;
+    };
+    monitor.stop.store(true, Ordering::Release);
+    let _ = monitor.worker.join();
+}
+
+fn monitor_slot() -> &'static Mutex<Option<MonitorState>> {
+    MONITOR.get_or_init(|| Mutex::new(None))
 }
 
 fn parse_group_rule(raw: &str, order: usize) -> Result<SchedulerRule> {
@@ -1089,5 +1290,31 @@ mod tests {
         cleanup();
         assert!(!cgroup.exists());
         std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn runtime_monitor_honors_switches_and_validates_buffer_pages() {
+        let _env_guard = crate::config::test_env_lock();
+        let disabled = vec![("runtime".to_string(), "false".to_string())];
+        start_runtime_monitor(&disabled).unwrap();
+        assert!(monitor_slot().lock().unwrap().is_none());
+
+        let invalid = vec![
+            ("runtime".to_string(), "true".to_string()),
+            ("perf_mmap_pages".to_string(), "0".to_string()),
+        ];
+        assert!(start_runtime_monitor(&invalid).is_err());
+
+        let enabled = vec![
+            ("runtime".to_string(), "true".to_string()),
+            (
+                "group.never".to_string(),
+                "0:*:*:*:^this-process-name-cannot-exist$".to_string(),
+            ),
+        ];
+        start_runtime_monitor(&enabled).unwrap();
+        assert!(monitor_slot().lock().unwrap().is_some());
+        stop_runtime_monitor();
+        assert!(monitor_slot().lock().unwrap().is_none());
     }
 }
