@@ -5,7 +5,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use anyhow::{bail, Result};
 use regex::{Regex, RegexSet};
@@ -672,7 +671,7 @@ fn start_runtime_monitor(options: &PluginOptions) -> Result<()> {
         .name("tuned-rs-scheduler".to_string())
         .spawn(move || {
             while !worker_stop.load(Ordering::Acquire) {
-                thread::sleep(Duration::from_millis(250));
+                thread::sleep(crate::config::sleep_interval());
                 let Ok(current) = process_ids() else {
                     continue;
                 };

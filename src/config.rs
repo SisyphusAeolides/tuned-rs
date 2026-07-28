@@ -121,10 +121,20 @@ pub fn startup_udev_settle_wait() -> u64 {
 }
 
 pub fn update_interval() -> std::time::Duration {
+    let sleep = sleep_interval().as_secs();
     let seconds = global_config_value("update_interval")
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|seconds| *seconds > 0)
-        .unwrap_or(10);
+        .unwrap_or(10)
+        .max(sleep);
+    std::time::Duration::from_secs(seconds)
+}
+
+pub fn sleep_interval() -> std::time::Duration {
+    let seconds = global_config_value("sleep_interval")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(1);
     std::time::Duration::from_secs(seconds)
 }
 
