@@ -51,29 +51,29 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
             cpu_seen = true;
         }
         validate_unit_contract(&unit)?;
-        apply_unit(rollback, &unit)?;
+        apply_unit(rollback, &unit, true)?;
     }
     Ok(())
 }
 
 pub fn apply_dynamic_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
     validate_unit_contract(unit)?;
-    apply_unit(rollback, unit)
+    apply_unit(rollback, unit, false)
 }
 
-fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
+fn apply_unit(rollback: &Rollback, unit: &ProfileUnit, manage_runtime: bool) -> Result<()> {
     let (resolved, devices) = resolve_unit_device_controls(unit)?;
     if let Some(path) = unit.script_pre.as_deref() {
         script::apply_device_script(rollback, std::path::Path::new(path), "pre", &devices)?;
     }
-    apply_unit_inner(rollback, &resolved)?;
+    apply_unit_inner(rollback, &resolved, manage_runtime)?;
     if let Some(path) = unit.script_post.as_deref() {
         script::apply_device_script(rollback, std::path::Path::new(path), "post", &devices)?;
     }
     Ok(())
 }
 
-fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
+fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit, manage_runtime: bool) -> Result<()> {
     match unit.plugin_type.as_str() {
         "modules" => modules::apply_options(rollback, &unit.options),
         "cpu" => apply_cpu_unit(rollback, unit),
@@ -89,6 +89,7 @@ fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             rollback,
             (unit.devices != "*").then_some(unit.devices.as_str()),
             &unit.options,
+            manage_runtime,
         ),
         "acpi" => apply_acpi_unit(rollback, unit),
         "net" | "network" => network::apply_options(rollback, &unit.devices, &unit.options),
@@ -161,6 +162,7 @@ pub(crate) fn resolve_unit_device_controls(
 }
 
 pub fn cleanup_runtime_resources() {
+    disk::cleanup();
     eeepc_she::cleanup();
     scheduler::cleanup();
     rtentsk::cleanup();
@@ -314,6 +316,7 @@ fn apply_legacy_projection(rollback: &Rollback, profile: &Profile) -> Result<()>
         rollback,
         profile.disk.devices.as_deref(),
         &disk_option_pairs(&profile.disk),
+        true,
     )?;
     if let Some(platform_profile) = &profile.acpi.platform_profile {
         acpi::apply_platform_profile(rollback, platform_profile)?;

@@ -86,3 +86,29 @@ pub fn rollback_on_exit() -> bool {
         Some(ROLLBACK_NOT_ON_EXIT)
     )
 }
+
+pub fn dynamic_tuning() -> bool {
+    global_config_value("dynamic_tuning").is_some_and(|value| tuned_bool(&value))
+}
+
+pub fn update_interval() -> std::time::Duration {
+    let seconds = global_config_value("update_interval")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(10);
+    std::time::Duration::from_secs(seconds)
+}
+
+fn global_config_value(key: &str) -> Option<String> {
+    let path = resolve_path(GLOBAL_CONFIG_FILE);
+    let mut ini = configparser::ini::Ini::new();
+    ini.load(path.to_str()?).ok()?;
+    ini.get("main", key).or_else(|| ini.get("default", key))
+}
+
+fn tuned_bool(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "y" | "yes" | "true" | "on"
+    )
+}
