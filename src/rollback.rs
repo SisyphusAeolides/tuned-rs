@@ -108,6 +108,11 @@ impl Rollback {
         self.record_file_snapshot("bootfile", path)
     }
 
+    pub fn record_grub_file(&self, path: &Path) -> Result<()> {
+        validate_grub_file(path)?;
+        self.record_file_snapshot("grubfile", path)
+    }
+
     pub fn record_systemd_dropin(&self, path: &Path) -> Result<()> {
         validate_systemd_dropin(path)?;
         self.record_file_snapshot("systemdfile", path)
@@ -274,6 +279,10 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
             validate_boot_file(Path::new(target))?;
             restore_file_snapshot(Path::new(target), original)
         }
+        "grubfile" => {
+            validate_grub_file(Path::new(target))?;
+            restore_file_snapshot(Path::new(target), original)
+        }
         "systemdfile" => {
             validate_systemd_dropin(Path::new(target))?;
             restore_file_snapshot(Path::new(target), original)?;
@@ -328,6 +337,28 @@ fn validate_boot_file(path: &Path) -> Result<()> {
     } else {
         bail!(
             "Refusing boot-file rollback outside /boot: {}",
+            path.display()
+        )
+    }
+}
+
+fn validate_grub_file(path: &Path) -> Result<()> {
+    let boot = config::resolve_path("/boot");
+    let etc_grub = [
+        config::resolve_path("/etc/grub2.cfg"),
+        config::resolve_path("/etc/grub2-efi.cfg"),
+    ];
+    let below_boot = path.strip_prefix(&boot).is_ok_and(|relative| {
+        !relative.as_os_str().is_empty()
+            && relative
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_)))
+    });
+    if below_boot || etc_grub.iter().any(|candidate| candidate == path) {
+        Ok(())
+    } else {
+        bail!(
+            "Refusing GRUB-file rollback outside bootloader roots: {}",
             path.display()
         )
     }

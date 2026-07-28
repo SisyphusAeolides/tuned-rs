@@ -38,9 +38,99 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
         atomic_write(&path, &updated)?;
     }
     if !option_value(options, "skip_grub_config").is_some_and(tuned_bool) {
+        if let Some(path) = custom_grub_path(options)? {
+            patch_grub_config(rollback, &path, &cmdline, &initrd)?;
+        }
         sync_bootloader(&cmdline, &initrd)?;
     }
     Ok(())
+}
+
+fn custom_grub_path(options: &PluginOptions) -> Result<Option<PathBuf>> {
+    let Some(raw) = option_value(options, "grub2_cfg_file") else {
+        return Ok(None);
+    };
+    let raw = unquote(raw.trim())?;
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let path = Path::new(raw);
+    if !path.is_absolute()
+        || path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::RootDir | std::path::Component::Normal(_)
+            )
+        })
+    {
+        bail!("grub2_cfg_file must be an absolute normalized path");
+    }
+    Ok(Some(config::resolve_path_buf(path)))
+}
+
+fn patch_grub_config(rollback: &Rollback, path: &Path, cmdline: &str, initrd: &str) -> Result<()> {
+    let current = fs::read_to_string(path).with_context(|| {
+        format!(
+            "Failed to read custom GRUB configuration {}",
+            path.display()
+        )
+    })?;
+    let updated = patched_grub_contents(&current, cmdline, initrd);
+    if updated != current {
+        rollback.record_grub_file(path)?;
+        fs::write(path, updated).with_context(|| {
+            format!(
+                "Failed to patch custom GRUB configuration {}",
+                path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn patched_grub_contents(contents: &str, cmdline: &str, initrd: &str) -> String {
+    const BEGIN: &str = "### BEGIN /etc/grub.d/00_tuned ###";
+    const END: &str = "### END /etc/grub.d/00_tuned ###";
+    let mut filtered = Vec::new();
+    let mut in_tuned = false;
+    for line in contents.lines() {
+        if line.trim() == BEGIN {
+            in_tuned = true;
+            continue;
+        }
+        if in_tuned {
+            if line.trim() == END {
+                in_tuned = false;
+            }
+            continue;
+        }
+        let mut line = line
+            .replace(" $tuned_params", "")
+            .replace(" $tuned_initrd", "");
+        let trimmed = line.trim_start();
+        let command = trimmed.split_whitespace().next().unwrap_or_default();
+        let rescue = trimmed.contains("rescue");
+        if !rescue && matches!(command, "linux" | "linux16" | "linuxefi") {
+            line.push_str(" $tuned_params");
+        } else if !rescue && matches!(command, "initrd" | "initrd16" | "initrdefi") {
+            line.push_str(" $tuned_initrd");
+        }
+        filtered.push(line);
+    }
+
+    let block = [
+        BEGIN.to_string(),
+        format!("set tuned_params=\"{cmdline}\""),
+        format!("set tuned_initrd=\"{initrd}\""),
+        END.to_string(),
+    ];
+    let insertion = filtered
+        .iter()
+        .position(|line| line.trim_start().starts_with("### END ") && line.contains("/00_header"))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    filtered.splice(insertion..insertion, block);
+    format!("{}\n", filtered.join("\n"))
 }
 
 fn install_initrd_overlay(rollback: &Rollback, options: &PluginOptions) -> Result<String> {
@@ -325,5 +415,17 @@ mod tests {
             Some("quiet")
         );
         assert!(replace_shell_assignment(input, "TUNED_BOOT_CMDLINE", "$(bad)").is_err());
+    }
+
+    #[test]
+    fn patches_grub_commands_idempotently_and_preserves_rescue_entries() {
+        let grub = "### END /etc/grub.d/00_header ###\nlinux /vmlinuz root=x\ninitrd /initramfs.img\nlinux /vmlinuz-rescue root=x\n";
+        let once = patched_grub_contents(grub, "quiet", "/overlay.img");
+        let twice = patched_grub_contents(&once, "quiet", "/overlay.img");
+        assert_eq!(once, twice);
+        assert!(once.contains("set tuned_params=\"quiet\""));
+        assert!(once.contains("linux /vmlinuz root=x $tuned_params"));
+        assert!(once.contains("initrd /initramfs.img $tuned_initrd"));
+        assert!(once.contains("linux /vmlinuz-rescue root=x\n"));
     }
 }
