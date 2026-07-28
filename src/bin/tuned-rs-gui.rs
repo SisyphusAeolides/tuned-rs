@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io::Read as _;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -114,7 +115,10 @@ fn unix_time() -> u64 {
 fn session_token() -> Result<String> {
     let mut bytes = [0_u8; 24];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(bytes.iter().fold(String::new(), |mut token, byte| {
+        let _ = write!(token, "{byte:02x}");
+        token
+    }))
 }
 
 fn open_browser(url: &str) -> Result<()> {

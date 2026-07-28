@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.1
+Version:        0.2.2
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -110,6 +110,9 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.2-1
+- Complete Rust 1.75 lint compatibility for the control center
+
 * Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.1-1
 - Preserve compatibility with the Rust 1.75 minimum toolchain
 
