@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn comma_space_classes_and_escapes_are_supported() {
-        let rules = DeviceRules::parse(r"nvme[0-9]n?, sd\\*literal");
+        let rules = DeviceRules::parse(r"nvme[0-9]n?, sd\*literal");
         assert!(rules.matches("nvme0n1"));
         assert!(rules.matches("sd*literal"));
         assert!(!rules.matches("nvme10n1"));
