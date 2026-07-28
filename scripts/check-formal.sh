@@ -61,6 +61,10 @@ if command -v gfortran >/dev/null 2>&1; then
         formal/fortran/tuned_sysfs.f90 \
         tuned-sysfs-check \
         "Fortran generic sysfs safety model"
+    run_fortran_model \
+        formal/fortran/tuned_devices.f90 \
+        tuned-devices-check \
+        "Fortran device selection model"
 else
     echo "Fortran models: skipped (gfortran not found)" >&2
     missing=1
@@ -76,8 +80,9 @@ if command -v idris2 >/dev/null 2>&1; then
         idris2 --check TunedUnits.idr
         idris2 --check TunedRuntime.idr
         idris2 --check TunedSysfs.idr
+        idris2 --check TunedDevices.idr
     )
-    echo "Idris profile, instance, verification, unit, runtime, and sysfs models: passed"
+    echo "Idris profile, instance, verification, unit, runtime, sysfs, and device models: passed"
 else
     echo "Idris models: skipped (idris2 not found)" >&2
     missing=1
@@ -91,7 +96,8 @@ if command -v agda >/dev/null 2>&1; then
     agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedUnits.agda"
     agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedRuntime.agda"
     agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedSysfs.agda"
-    echo "Agda rollback, instance, verification, unit, runtime, and sysfs proofs: passed"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedDevices.agda"
+    echo "Agda rollback, instance, verification, unit, runtime, sysfs, and device proofs: passed"
 else
     echo "Agda proofs: skipped (agda not found)" >&2
     missing=1
