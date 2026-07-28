@@ -38,10 +38,8 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
                 continue;
             }
 
-            rollback.record_original(
-                &rollback_key("sysfs", &target.to_string_lossy()),
-                &current,
-            )?;
+            rollback
+                .record_original(&rollback_key("sysfs", &target.to_string_lossy()), &current)?;
             sysfs::write_raw(&target, &resolved)?;
             info!(
                 "Set generic sysfs control {} to '{}'",
@@ -240,61 +238,35 @@ fn glob_component_matches(pattern: &str, text: &str) -> bool {
                 }
                 b'?' => {
                     text_index < text.len()
-                        && matches_from(
-                            pattern,
-                            text,
-                            pattern_index + 1,
-                            text_index + 1,
-                            memo,
-                        )
+                        && matches_from(pattern, text, pattern_index + 1, text_index + 1, memo)
                 }
-                b'[' if text_index < text.len() => match character_class(
-                    pattern,
-                    pattern_index,
-                    text[text_index],
-                ) {
-                    Some((matched, next_pattern)) => {
-                        matched
-                            && matches_from(
-                                pattern,
-                                text,
-                                next_pattern,
-                                text_index + 1,
-                                memo,
-                            )
+                b'[' if text_index < text.len() => {
+                    match character_class(pattern, pattern_index, text[text_index]) {
+                        Some((matched, next_pattern)) => {
+                            matched
+                                && matches_from(pattern, text, next_pattern, text_index + 1, memo)
+                        }
+                        None => {
+                            text[text_index] == b'['
+                                && matches_from(
+                                    pattern,
+                                    text,
+                                    pattern_index + 1,
+                                    text_index + 1,
+                                    memo,
+                                )
+                        }
                     }
-                    None => {
-                        text[text_index] == b'['
-                            && matches_from(
-                                pattern,
-                                text,
-                                pattern_index + 1,
-                                text_index + 1,
-                                memo,
-                            )
-                    }
-                },
+                }
                 b'\\' if pattern_index + 1 < pattern.len() => {
                     text_index < text.len()
                         && text[text_index] == pattern[pattern_index + 1]
-                        && matches_from(
-                            pattern,
-                            text,
-                            pattern_index + 2,
-                            text_index + 1,
-                            memo,
-                        )
+                        && matches_from(pattern, text, pattern_index + 2, text_index + 1, memo)
                 }
                 byte => {
                     text_index < text.len()
                         && text[text_index] == byte
-                        && matches_from(
-                            pattern,
-                            text,
-                            pattern_index + 1,
-                            text_index + 1,
-                            memo,
-                        )
+                        && matches_from(pattern, text, pattern_index + 1, text_index + 1, memo)
                 }
             }
         };
@@ -440,7 +412,10 @@ mod tests {
 
     #[test]
     fn compares_active_choices_modifiers_and_numeric_encodings() {
-        assert!(value_matches("performance|powersave", "[powersave] performance"));
+        assert!(value_matches(
+            "performance|powersave",
+            "[powersave] performance"
+        ));
         assert!(value_matches(">=1024", "2048"));
         assert!(!value_matches(">=1024", "512"));
         assert!(value_matches("0x0f", "15"));
