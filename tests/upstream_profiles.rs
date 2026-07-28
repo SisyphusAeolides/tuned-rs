@@ -15,9 +15,24 @@ fn upstream_profile_surface_is_supported() {
     let Some(root) = std::env::var_os("TUNED_RS_UPSTREAM_PROFILES") else {
         return;
     };
-    let root = PathBuf::from(root);
-    let expected = profile_names(&root);
-    let catalog = ProfileCatalog::load_from_dirs(std::slice::from_ref(&root)).unwrap();
+    audit_profile_surface(&PathBuf::from(root));
+}
+
+#[test]
+fn bundled_profile_surface_is_supported() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("profiles");
+    let names = profile_names(&root);
+    assert_eq!(
+        names.len(),
+        39,
+        "the complete upstream profile set must ship"
+    );
+    audit_profile_surface(&root);
+}
+
+fn audit_profile_surface(root: &Path) {
+    let expected = profile_names(root);
+    let catalog = ProfileCatalog::load_from_dirs(&[root.to_path_buf()]).unwrap();
     let loaded = catalog.names().into_iter().collect::<BTreeSet<_>>();
     let missing = expected.difference(&loaded).cloned().collect::<Vec<_>>();
     assert!(

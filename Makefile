@@ -100,3 +100,4 @@ install-profiles:
 	cp -a profiles/. $(DESTDIR)$(PROFILEDIR)/
 	find $(DESTDIR)$(PROFILEDIR) -type d -exec chmod 0755 {} +
 	find $(DESTDIR)$(PROFILEDIR) -type f -exec chmod 0644 {} +
+	find $(DESTDIR)$(PROFILEDIR) -type f -name '*.sh' -exec chmod 0755 {} +
