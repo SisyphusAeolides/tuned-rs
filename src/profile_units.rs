@@ -17,6 +17,7 @@ pub struct ProfileUnit {
     pub uname_regex: Option<String>,
     pub script_pre: Option<String>,
     pub script_post: Option<String>,
+    pub cpu_global_controls: bool,
     pub options: OrderedOptions,
 }
 
@@ -70,6 +71,7 @@ impl ProfileUnit {
             uname_regex,
             script_pre,
             script_post,
+            cpu_global_controls: true,
             options,
         })
     }
@@ -90,6 +92,7 @@ impl ProfileUnit {
         merge_optional(&mut self.uname_regex, newer.uname_regex);
         merge_optional(&mut self.script_pre, newer.script_pre);
         merge_optional(&mut self.script_post, newer.script_post);
+        self.cpu_global_controls &= newer.cpu_global_controls;
 
         for option in newer.drop.drain(..) {
             remove_option(&mut self.options, &option);

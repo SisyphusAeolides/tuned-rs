@@ -444,6 +444,20 @@ fn dynamic_instance_unit(
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect::<Vec<_>>();
+    if instance.plugin == "cpu" && !instance.primary {
+        options.retain(|(name, _)| {
+            !matches!(
+                name.as_str(),
+                "min_perf_pct"
+                    | "max_perf_pct"
+                    | "no_turbo"
+                    | "force_latency"
+                    | "load_threshold"
+                    | "latency_low"
+                    | "latency_high"
+            )
+        });
+    }
     options.push(("type".to_string(), instance.plugin.clone()));
     options.retain(|(name, _)| name != "devices");
     options.push((
@@ -459,7 +473,9 @@ fn dynamic_instance_unit(
                 .join(",")
         },
     ));
-    crate::profile_units::ProfileUnit::from_options(&instance.name, options)
+    let mut unit = crate::profile_units::ProfileUnit::from_options(&instance.name, options)?;
+    unit.cpu_global_controls = instance.plugin != "cpu" || instance.primary;
+    Ok(unit)
 }
 
 fn changed_instance_names(before: &InstanceRegistry, after: &InstanceRegistry) -> BTreeSet<String> {
@@ -609,6 +625,72 @@ mod tests {
                 .unwrap()
                 .trim(),
             "128"
+        );
+
+        let cpu_root = root.path().join("sys/devices/system/cpu");
+        for cpu in ["cpu0", "cpu1"] {
+            let cpufreq = cpu_root.join(cpu).join("cpufreq");
+            std::fs::create_dir_all(&cpufreq).unwrap();
+            std::fs::write(
+                cpufreq.join("scaling_available_governors"),
+                "performance powersave",
+            )
+            .unwrap();
+            std::fs::write(cpufreq.join("scaling_governor"), "powersave").unwrap();
+        }
+        let intel_pstate = cpu_root.join("intel_pstate");
+        std::fs::create_dir_all(&intel_pstate).unwrap();
+        std::fs::write(intel_pstate.join("min_perf_pct"), "20").unwrap();
+        assert!(
+            daemon
+                .instance_create(
+                    "cpu",
+                    "cpu-primary",
+                    HashMap::from([
+                        ("devices".to_string(), "cpu0".to_string()),
+                        ("governor".to_string(), "performance".to_string()),
+                        ("min_perf_pct".to_string(), "30".to_string()),
+                    ]),
+                )
+                .await
+                .0
+        );
+        assert!(
+            daemon
+                .instance_create(
+                    "cpu",
+                    "cpu-secondary",
+                    HashMap::from([
+                        ("devices".to_string(), "cpu1".to_string()),
+                        ("governor".to_string(), "powersave".to_string()),
+                        ("min_perf_pct".to_string(), "90".to_string()),
+                    ]),
+                )
+                .await
+                .0
+        );
+        assert_eq!(
+            std::fs::read_to_string(intel_pstate.join("min_perf_pct")).unwrap(),
+            "30"
+        );
+        assert_eq!(
+            daemon
+                .instance_acquire_devices("cpu0", "cpu-secondary")
+                .await,
+            (true, "OK".to_string())
+        );
+        assert_eq!(
+            std::fs::read_to_string(cpu_root.join("cpu0/cpufreq/scaling_governor")).unwrap(),
+            "powersave"
+        );
+        assert_eq!(
+            std::fs::read_to_string(intel_pstate.join("min_perf_pct")).unwrap(),
+            "30"
+        );
+        daemon.destroy_all_dynamic_instances().await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(intel_pstate.join("min_perf_pct")).unwrap(),
+            "20"
         );
         std::env::remove_var("TUNED_RS_ROOT");
     }

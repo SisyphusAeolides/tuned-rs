@@ -7,6 +7,7 @@ pub struct DynamicInstance {
     pub name: String,
     pub plugin: String,
     pub priority: i32,
+    pub primary: bool,
     pub options: HashMap<String, String>,
     pub devices: BTreeSet<String>,
 }
@@ -61,10 +62,15 @@ impl InstanceRegistry {
         };
         self.commit_transfers(instance_name, &transfers);
 
+        let primary = !self
+            .instances
+            .values()
+            .any(|instance| instance.plugin == plugin_name);
         let instance = DynamicInstance {
             name: instance_name.to_string(),
             plugin: plugin_name.to_string(),
             priority,
+            primary,
             options,
             devices: devices.clone(),
         };
@@ -206,7 +212,7 @@ impl InstanceRegistry {
 pub fn supports_dynamic_instances(plugin_name: &str) -> bool {
     matches!(
         plugin_name,
-        "disk" | "irq" | "net" | "network" | "scsi_host" | "uncore"
+        "cpu" | "disk" | "irq" | "net" | "network" | "scsi_host" | "uncore"
     )
 }
 
@@ -288,6 +294,15 @@ mod tests {
             Some(vec!["sda".to_string(), "sdb".to_string()])
         );
         assert!(registry.invariant_holds());
+    }
+
+    #[test]
+    fn only_the_first_instance_of_a_plugin_is_primary() {
+        let mut registry = InstanceRegistry::default();
+        assert!(registry.create("cpu", "first", options("cpu0")).0);
+        assert!(registry.create("cpu", "second", options("cpu1")).0);
+        assert!(registry.instance("first").unwrap().primary);
+        assert!(!registry.instance("second").unwrap().primary);
     }
 
     #[test]

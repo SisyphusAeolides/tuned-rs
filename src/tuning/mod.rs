@@ -44,7 +44,12 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
         return apply_legacy_projection(rollback, profile);
     }
 
-    for unit in units {
+    let mut cpu_seen = false;
+    for mut unit in units {
+        if unit.plugin_type == "cpu" {
+            unit.cpu_global_controls = !cpu_seen;
+            cpu_seen = true;
+        }
         validate_unit_contract(&unit)?;
         apply_unit(rollback, &unit)?;
     }
@@ -168,11 +173,14 @@ fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             "governor" => cpu::apply_governor_for(rollback, value, &unit.devices)?,
             "energy_perf_bias" => cpu::apply_energy_perf_bias_for(rollback, value, &unit.devices)?,
             "energy_performance_preference" => cpu::apply_epp_for(rollback, value, &unit.devices)?,
-            "min_perf_pct" => cpu::apply_min_perf_pct(rollback, value)?,
-            "max_perf_pct" => cpu::apply_max_perf_pct(rollback, value)?,
+            "min_perf_pct" if unit.cpu_global_controls => cpu::apply_min_perf_pct(rollback, value)?,
+            "max_perf_pct" if unit.cpu_global_controls => cpu::apply_max_perf_pct(rollback, value)?,
             "boost" => cpu::apply_boost_for(rollback, value, &unit.devices)?,
-            "no_turbo" => cpu::apply_no_turbo(rollback, value)?,
-            "force_latency" => cpu::apply_force_latency(rollback, value)?,
+            "no_turbo" if unit.cpu_global_controls => cpu::apply_no_turbo(rollback, value)?,
+            "force_latency" if unit.cpu_global_controls => {
+                cpu::apply_force_latency(rollback, value)?
+            }
+            "min_perf_pct" | "max_perf_pct" | "no_turbo" | "force_latency" => {}
             "pm_qos_resume_latency_us" => {
                 cpu::apply_pm_qos_resume_latency_us_for(rollback, value, &unit.devices)?
             }
@@ -186,7 +194,9 @@ fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             ),
         }
     }
-    cpu::apply_dynamic_latency(&unit.options)?;
+    if unit.cpu_global_controls {
+        cpu::apply_dynamic_latency(&unit.options)?;
+    }
     Ok(())
 }
 
