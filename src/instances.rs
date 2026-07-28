@@ -11,7 +11,7 @@ pub struct DynamicInstance {
     pub devices: BTreeSet<String>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct InstanceRegistry {
     instances: BTreeMap<String, DynamicInstance>,
     owners: BTreeMap<String, String>,
@@ -24,6 +24,9 @@ impl InstanceRegistry {
         instance_name: &str,
         options: HashMap<String, String>,
     ) -> (bool, String) {
+        if !valid_instance_name(instance_name) {
+            return (false, "Invalid instance name".to_string());
+        }
         if plugins::descriptor(plugin_name).is_none() {
             return (false, format!("Plugin '{plugin_name}' not found"));
         }
@@ -130,6 +133,14 @@ impl InstanceRegistry {
             .map(|instance| instance.devices.iter().cloned().collect())
     }
 
+    pub fn instance(&self, instance_name: &str) -> Option<DynamicInstance> {
+        self.instances.get(instance_name).cloned()
+    }
+
+    pub fn all_instances(&self) -> Vec<DynamicInstance> {
+        self.instances.values().cloned().collect()
+    }
+
     fn plan_transfers(
         &self,
         plugin_name: &str,
@@ -195,8 +206,18 @@ impl InstanceRegistry {
 pub fn supports_dynamic_instances(plugin_name: &str) -> bool {
     matches!(
         plugin_name,
-        "cpu" | "disk" | "gpu" | "storage" | "thermal" | "battery" | "hermes"
+        "disk" | "irq" | "net" | "network" | "scsi_host" | "uncore"
     )
+}
+
+fn valid_instance_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn parse_device_list(raw: &str) -> Result<BTreeSet<String>, String> {
@@ -255,16 +276,16 @@ mod tests {
     fn create_and_list_instances() {
         let mut registry = InstanceRegistry::default();
         assert_eq!(
-            registry.create("cpu", "latency", options("cpu0,cpu1")),
+            registry.create("disk", "latency", options("sda,sdb")),
             (true, "OK".to_string())
         );
         assert_eq!(
-            registry.list("cpu"),
-            vec![("latency".to_string(), "cpu".to_string())]
+            registry.list("disk"),
+            vec![("latency".to_string(), "disk".to_string())]
         );
         assert_eq!(
             registry.devices("latency"),
-            Some(vec!["cpu0".to_string(), "cpu1".to_string()])
+            Some(vec!["sda".to_string(), "sdb".to_string()])
         );
         assert!(registry.invariant_holds());
     }
@@ -272,16 +293,16 @@ mod tests {
     #[test]
     fn same_plugin_transfer_is_exclusive() {
         let mut registry = InstanceRegistry::default();
-        assert!(registry.create("cpu", "first", options("cpu0,cpu1")).0);
-        assert!(registry.create("cpu", "second", options("cpu2")).0);
+        assert!(registry.create("disk", "first", options("sda,sdb")).0);
+        assert!(registry.create("disk", "second", options("sdc")).0);
         assert_eq!(
-            registry.acquire_devices("cpu1,cpu2", "second"),
+            registry.acquire_devices("sdb,sdc", "second"),
             (true, "OK".to_string())
         );
-        assert_eq!(registry.devices("first"), Some(vec!["cpu0".to_string()]));
+        assert_eq!(registry.devices("first"), Some(vec!["sda".to_string()]));
         assert_eq!(
             registry.devices("second"),
-            Some(vec!["cpu1".to_string(), "cpu2".to_string()])
+            Some(vec!["sdb".to_string(), "sdc".to_string()])
         );
         assert!(registry.invariant_holds());
     }
@@ -289,26 +310,26 @@ mod tests {
     #[test]
     fn failed_acquire_is_transactional() {
         let mut registry = InstanceRegistry::default();
-        assert!(registry.create("cpu", "first", options("cpu0")).0);
-        assert!(registry.create("cpu", "second", options("cpu1")).0);
+        assert!(registry.create("disk", "first", options("sda")).0);
+        assert!(registry.create("disk", "second", options("sdb")).0);
         let before = registry.devices("second");
-        let result = registry.acquire_devices("cpu0,cpu9", "second");
+        let result = registry.acquire_devices("sda,sdz", "second");
         assert!(!result.0);
         assert_eq!(registry.devices("second"), before);
-        assert_eq!(registry.devices("first"), Some(vec!["cpu0".to_string()]));
+        assert_eq!(registry.devices("first"), Some(vec!["sda".to_string()]));
         assert!(registry.invariant_holds());
     }
 
     #[test]
     fn cross_plugin_transfer_is_rejected() {
         let mut registry = InstanceRegistry::default();
-        assert!(registry.create("cpu", "processor", options("device0")).0);
-        assert!(registry.create("disk", "storage", options("device1")).0);
-        let result = registry.acquire_devices("device0", "storage");
+        assert!(registry.create("irq", "processor", options("irq1")).0);
+        assert!(registry.create("disk", "storage", options("sda")).0);
+        let result = registry.acquire_devices("irq1", "storage");
         assert!(!result.0);
         assert_eq!(
             registry.devices("processor"),
-            Some(vec!["device0".to_string()])
+            Some(vec!["irq1".to_string()])
         );
         assert!(registry.invariant_holds());
     }
@@ -316,11 +337,19 @@ mod tests {
     #[test]
     fn destroy_releases_every_device() {
         let mut registry = InstanceRegistry::default();
-        assert!(registry.create("cpu", "temporary", options("cpu0,cpu1")).0);
+        assert!(registry.create("disk", "temporary", options("sda,sdb")).0);
         assert_eq!(registry.destroy("temporary"), (true, "OK".to_string()));
         assert!(registry.list("").is_empty());
         assert!(registry.owners.is_empty());
         assert!(registry.invariant_holds());
+    }
+
+    #[test]
+    fn rejects_instance_names_that_can_escape_the_journal_directory() {
+        let mut registry = InstanceRegistry::default();
+        assert!(!registry.create("disk", "../escape", options("sda")).0);
+        assert!(!registry.create("disk", "", options("sda")).0);
+        assert!(registry.create("disk", "safe.instance-1", options("sda")).0);
     }
 
     #[test]

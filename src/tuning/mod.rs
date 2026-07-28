@@ -51,6 +51,11 @@ pub fn apply_profile(rollback: &Rollback, profile: &Profile) -> Result<()> {
     Ok(())
 }
 
+pub fn apply_dynamic_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
+    validate_unit_contract(unit)?;
+    apply_unit(rollback, unit)
+}
+
 fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
     let (resolved, devices) = resolve_unit_device_controls(unit)?;
     if let Some(path) = unit.script_pre.as_deref() {

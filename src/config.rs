@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
 pub const NAMESPACE: &str = "com.redhat.tuned";
 pub const DBUS_INTERFACE: &str = "com.redhat.tuned.control";
 pub const DBUS_OBJECT: &str = "/Tuned";
@@ -16,6 +19,14 @@ pub const USER_PROFILES_DIR: &str = "/etc/tuned/profiles";
 
 pub const ROLLBACK_AUTO: &str = "auto";
 pub const ROLLBACK_NOT_ON_EXIT: &str = "not_on_exit";
+
+#[cfg(test)]
+pub fn test_env_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 pub fn default_profile_dirs() -> Vec<PathBuf> {
     vec![

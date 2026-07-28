@@ -633,6 +633,7 @@ mod tests {
 
     #[test]
     fn resolves_numeric_and_cstate_latency_fallbacks() {
+        let _env_guard = crate::config::test_env_lock();
         let root = TempDir::new().unwrap();
         let state = root
             .path()

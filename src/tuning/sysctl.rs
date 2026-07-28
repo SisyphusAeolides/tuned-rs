@@ -95,6 +95,7 @@ mod tests {
 
     #[test]
     fn rollback_records_original_sysctl_value() {
+        let _env_guard = crate::config::test_env_lock();
         let root = TempDir::new().unwrap();
         std::env::set_var("TUNED_RS_ROOT", root.path());
         let key_path = root.path().join("proc/sys/vm/swappiness");

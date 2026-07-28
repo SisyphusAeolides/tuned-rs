@@ -33,11 +33,20 @@ pub struct Rollback {
     path: PathBuf,
     state: Mutex<RollbackState>,
     managed_files: Vec<PathBuf>,
+    cleanup_runtime_resources: bool,
 }
 
 impl Rollback {
     pub fn load() -> Result<Self> {
         Self::load_from_path(config::resolve_path(config::ROLLBACK_FILE))
+    }
+
+    pub fn load_instance(instance_name: &str) -> Result<Self> {
+        let mut rollback = Self::load_from_path(config::resolve_path(&format!(
+            "/var/lib/tuned-rs/instances/{instance_name}.json"
+        )))?;
+        rollback.cleanup_runtime_resources = false;
+        Ok(rollback)
     }
 
     fn load_from_path(path: PathBuf) -> Result<Self> {
@@ -71,6 +80,7 @@ impl Rollback {
             path,
             state: Mutex::new(state),
             managed_files,
+            cleanup_runtime_resources: true,
         })
     }
 
@@ -122,7 +132,9 @@ impl Rollback {
     }
 
     pub fn restore_all(&self) -> Result<()> {
-        crate::tuning::cleanup_runtime_resources();
+        if self.cleanup_runtime_resources {
+            crate::tuning::cleanup_runtime_resources();
+        }
         let managed_files = self.managed_files.clone();
         self.restore_with(move |key, original| restore_entry(key, original, &managed_files))
     }
