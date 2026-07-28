@@ -21,6 +21,7 @@ pub struct PerformanceMetrics {
 pub struct TelemetryCollector {
     metrics_history: Vec<PerformanceMetrics>,
     max_history: usize,
+    last_cpu: Option<(u64, u64)>,
 }
 
 impl Default for TelemetryCollector {
@@ -34,6 +35,7 @@ impl TelemetryCollector {
         Self {
             metrics_history: Vec::new(),
             max_history: 1000,
+            last_cpu: None,
         }
     }
 
@@ -61,7 +63,7 @@ impl TelemetryCollector {
         Ok(metrics)
     }
 
-    fn get_cpu_usage(&self) -> Result<f64> {
+    fn get_cpu_usage(&mut self) -> Result<f64> {
         let stat = fs::read_to_string("/proc/stat")?;
         let line = stat.lines().next().unwrap_or("");
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -75,11 +77,20 @@ impl TelemetryCollector {
         let idle: u64 = parts[4].parse().unwrap_or(0);
         let iowait: u64 = parts[5].parse().unwrap_or(0);
 
-        let total = user + nice + system + idle + iowait;
         let active = user + nice + system;
-
-        Ok(if total > 0 {
-            (active as f64 / total as f64) * 100.0
+        let total = active + idle + iowait;
+        let previous = self.last_cpu.replace((total, active));
+        let Some((old_total, old_active)) = previous else {
+            return Ok(if total > 0 {
+                active as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            });
+        };
+        let total_delta = total.saturating_sub(old_total);
+        let active_delta = active.saturating_sub(old_active);
+        Ok(if total_delta > 0 {
+            active_delta as f64 / total_delta as f64 * 100.0
         } else {
             0.0
         })

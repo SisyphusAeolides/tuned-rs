@@ -72,6 +72,7 @@ make packaging-check
 %{_docdir}/%{name}/README.md
 %{_bindir}/tuned-rs
 %{_bindir}/tuned-rs-ppd
+%{_bindir}/tuned-rs-gui
 %{_sbindir}/tuned
 %{_sbindir}/tuned-adm
 %{_sbindir}/tuned-ppd
@@ -98,6 +99,9 @@ make packaging-check
 %{_prefix}/lib/tuned/
 %{_prefix}/lib/kernel/install.d/92-tuned.install
 %{_datadir}/tuned/grub2/00_tuned
+%{_datadir}/applications/tuned-rs-gui.desktop
+%{_datadir}/icons/hicolor/scalable/apps/tuned-rs.svg
+%{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
 * Mon Jul 27 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.1.0-3

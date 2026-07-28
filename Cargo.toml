@@ -25,6 +25,10 @@ path = "src/bin/tuned-rs-ppd.rs"
 name = "tuned-adm"
 path = "src/bin/tuned-adm.rs"
 
+[[bin]]
+name = "tuned-rs-gui"
+path = "src/bin/tuned-rs-gui.rs"
+
 [dependencies]
 tokio = { version = "1.36", features = ["full"] }
 zbus = "4.1"

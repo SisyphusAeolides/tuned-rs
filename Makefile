@@ -11,6 +11,9 @@ ETCTUNEDDIR ?= /etc/tuned
 PROFILEDIR ?= /usr/lib/tuned/profiles
 TUNEDDATADIR ?= /usr/share/tuned
 KERNELINSTALLDIR ?= /usr/lib/kernel/install.d
+APPLICATIONDIR ?= /usr/share/applications
+ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
+METAINFO_DIR ?= /usr/share/metainfo
 
 .PHONY: all build test check packaging-check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm
 
@@ -39,6 +42,7 @@ check: packaging-check
 
 packaging-check:
 	grep -q '^name = "tuned-adm"' Cargo.toml
+	grep -q '^name = "tuned-rs-gui"' Cargo.toml
 	grep -Eq '^Provides: +tuned( |%)' tuned-rs.spec
 	grep -Eq '^Obsoletes: +tuned( |<)' tuned-rs.spec
 	grep -Eq '^Provides: +tuned-ppd( |%)' tuned-rs.spec
@@ -56,6 +60,9 @@ packaging-check:
 	test -x packaging/00_tuned.grub
 	test -x packaging/92-tuned.install
 	test -f packaging/bootcmdline
+	test -f packaging/tuned-rs-gui.desktop
+	test -f packaging/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
+	test -f assets/icons/tuned-circle-gauge.svg
 
 test:
 	cargo test --locked --all-targets
@@ -75,6 +82,7 @@ install-bin:
 	install -D -m 0755 target/release/tuned-adm $(DESTDIR)$(SBINDIR)/tuned-adm
 	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(BINDIR)/tuned-rs-ppd
 	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(SBINDIR)/tuned-ppd
+	install -D -m 0755 target/release/tuned-rs-gui $(DESTDIR)$(BINDIR)/tuned-rs-gui
 
 install-data: install-config install-profiles
 	install -D -m 0644 packaging/tuned-rs.service $(DESTDIR)$(SYSTEMDUNITDIR)/tuned-rs.service
@@ -95,6 +103,9 @@ install-data: install-config install-profiles
 	install -D -m 0644 packaging/tuned-rs-ppd.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs-ppd.8
 	install -D -m 0755 packaging/00_tuned.grub $(DESTDIR)$(TUNEDDATADIR)/grub2/00_tuned
 	install -D -m 0755 packaging/92-tuned.install $(DESTDIR)$(KERNELINSTALLDIR)/92-tuned.install
+	install -D -m 0644 packaging/tuned-rs-gui.desktop $(DESTDIR)$(APPLICATIONDIR)/tuned-rs-gui.desktop
+	install -D -m 0644 assets/icons/tuned-circle-gauge.svg $(DESTDIR)$(ICONDIR)/tuned-rs.svg
+	install -D -m 0644 packaging/io.github.SisyphusAeolides.tuned-rs.metainfo.xml $(DESTDIR)$(METAINFO_DIR)/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 install-config:
 	install -d $(DESTDIR)$(ETCTUNEDDIR)/profiles

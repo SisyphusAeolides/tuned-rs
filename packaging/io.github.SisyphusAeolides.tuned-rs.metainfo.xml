@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.SisyphusAeolides.tuned-rs</id>
+  <name>TuneD Control Center</name>
+  <summary>Interactively tune system power, CPU, and networking</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  <developer id="io.github.sisyphusaeolides"><name>Kenny Glowner</name></developer>
+  <description>
+    <p>TuneD Control Center is the interactive desktop interface for tuned-rs. It manages TuneD profiles and transactional CPU and network tuning through the system TuneD D-Bus service.</p>
+  </description>
+  <launchable type="desktop-id">tuned-rs-gui.desktop</launchable>
+  <provides><binary>tuned-rs-gui</binary></provides>
+  <url type="homepage">https://github.com/SisyphusAeolides/tuned-rs</url>
+  <content_rating type="oars-1.1"/>
+</component>
