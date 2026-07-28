@@ -92,7 +92,9 @@ fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit, manage_runtime: boo
             manage_runtime,
         ),
         "acpi" => apply_acpi_unit(rollback, unit),
-        "net" | "network" => network::apply_options(rollback, &unit.devices, &unit.options),
+        "net" | "network" => {
+            network::apply_options(rollback, &unit.devices, &unit.options, manage_runtime)
+        }
         "audio" => audio::apply_options(rollback, &unit.devices, &unit.options),
         "video" => video::apply_options(rollback, &unit.devices, &unit.options),
         "scsi_host" => scsi_host::apply_options(rollback, &unit.devices, &unit.options),
@@ -163,6 +165,7 @@ pub(crate) fn resolve_unit_device_controls(
 
 pub fn cleanup_runtime_resources() {
     disk::cleanup();
+    network::cleanup();
     eeepc_she::cleanup();
     scheduler::cleanup();
     rtentsk::cleanup();

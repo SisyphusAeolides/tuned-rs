@@ -2,16 +2,45 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::{self, JoinHandle};
 use tracing::{debug, info, warn};
 
 use crate::rollback::Rollback;
 use crate::tuning::{generic_sysfs, sysctl};
 use crate::{config, device_matcher};
 
+const IDLE_LEVEL_STEPS: u8 = 6;
+
+struct Runtime {
+    stop: Arc<AtomicBool>,
+    worker: JoinHandle<()>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct NetCounters {
+    rx_bytes: u64,
+    tx_bytes: u64,
+}
+
+struct DynamicDevice {
+    name: String,
+    previous: NetCounters,
+    max_rx_delta: u64,
+    max_tx_delta: u64,
+    idle_rx: u8,
+    idle_tx: u8,
+    reduced: bool,
+}
+
+static RUNTIMES: OnceLock<Mutex<Vec<Runtime>>> = OnceLock::new();
+
 pub fn apply_options(
     rollback: &Rollback,
     devices: &str,
     options: &[(String, String)],
+    manage_runtime: bool,
 ) -> Result<()> {
     let mut global = Vec::new();
     for (name, value) in options {
@@ -32,7 +61,186 @@ pub fn apply_options(
             global.push((name.clone(), value.clone()));
         }
     }
-    apply_tcp_options(rollback, &global)
+    apply_tcp_options(rollback, &global)?;
+    if manage_runtime {
+        configure_dynamic(rollback, devices, options)?;
+    }
+    Ok(())
+}
+
+fn configure_dynamic(
+    rollback: &Rollback,
+    selector: &str,
+    options: &[(String, String)],
+) -> Result<()> {
+    let enabled = options
+        .iter()
+        .rev()
+        .find(|(name, _)| name == "dynamic")
+        .map(|(_, value)| parse_bool(value))
+        .transpose()?
+        .unwrap_or(true);
+    if !enabled || !config::dynamic_tuning() || std::env::var_os("TUNED_RS_ROOT").is_some() {
+        return Ok(());
+    }
+    let mut devices = Vec::new();
+    for name in network_devices(selector)? {
+        let Some(previous) = read_net_counters(&name) else {
+            continue;
+        };
+        if !supports_autonegotiation(&name) {
+            continue;
+        }
+        rollback.record_original(
+            &crate::rollback::rollback_key("net-advertise", &name),
+            "0x03f",
+        )?;
+        devices.push(DynamicDevice {
+            name,
+            previous,
+            max_rx_delta: 1,
+            max_tx_delta: 1,
+            idle_rx: 0,
+            idle_tx: 0,
+            reduced: false,
+        });
+    }
+    if devices.is_empty() {
+        return Ok(());
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = Arc::clone(&stop);
+    let interval = config::update_interval();
+    let worker = thread::Builder::new()
+        .name("tuned-rs-network".to_string())
+        .spawn(move || dynamic_monitor(worker_stop, interval, devices))?;
+    runtime_slots()
+        .lock()
+        .unwrap()
+        .push(Runtime { stop, worker });
+    Ok(())
+}
+
+fn dynamic_monitor(
+    stop: Arc<AtomicBool>,
+    interval: std::time::Duration,
+    mut devices: Vec<DynamicDevice>,
+) {
+    while !stop.load(Ordering::Acquire) {
+        thread::park_timeout(interval);
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        for device in &mut devices {
+            let Some(current) = read_net_counters(&device.name) else {
+                continue;
+            };
+            if let Some(reduced) = update_dynamic_level(device, current) {
+                let advertise = if reduced { "0x00f" } else { "0x03f" };
+                if let Err(error) = set_advertise(&device.name, advertise) {
+                    warn!(
+                        "Failed to dynamically tune network link '{}': {error}",
+                        device.name
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn update_dynamic_level(device: &mut DynamicDevice, current: NetCounters) -> Option<bool> {
+    let rx_delta = current.rx_bytes.saturating_sub(device.previous.rx_bytes);
+    let tx_delta = current.tx_bytes.saturating_sub(device.previous.tx_bytes);
+    device.previous = current;
+    device.max_rx_delta = device.max_rx_delta.max(rx_delta);
+    device.max_tx_delta = device.max_tx_delta.max(tx_delta);
+    device.idle_rx = if rx_delta.saturating_mul(100) < device.max_rx_delta {
+        device.idle_rx.saturating_add(1)
+    } else {
+        0
+    };
+    device.idle_tx = if tx_delta.saturating_mul(100) < device.max_tx_delta {
+        device.idle_tx.saturating_add(1)
+    } else {
+        0
+    };
+    if !device.reduced && device.idle_rx >= IDLE_LEVEL_STEPS && device.idle_tx >= IDLE_LEVEL_STEPS {
+        device.reduced = true;
+        Some(true)
+    } else if device.reduced && (device.idle_rx == 0 || device.idle_tx == 0) {
+        device.reduced = false;
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn read_net_counters(device: &str) -> Option<NetCounters> {
+    let root = config::resolve_path("/sys/class/net")
+        .join(device)
+        .join("statistics");
+    Some(NetCounters {
+        rx_bytes: fs::read_to_string(root.join("rx_bytes"))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()?,
+        tx_bytes: fs::read_to_string(root.join("tx_bytes"))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()?,
+    })
+}
+
+fn supports_autonegotiation(device: &str) -> bool {
+    validate_device(device).is_ok()
+        && run_ethtool([device]).is_ok_and(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                    line.trim()
+                        .eq_ignore_ascii_case("Supports auto-negotiation: Yes")
+                })
+        })
+}
+
+fn set_advertise(device: &str, value: &str) -> Result<()> {
+    validate_device(device)?;
+    let output = match Command::new("ethtool")
+        .args(["-s", device, "autoneg", "on", "advertise", value])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if output.status.success() {
+        Ok(())
+    } else {
+        bail!(
+            "ethtool advertise failed for {device}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+    }
+}
+
+pub fn restore_advertise(device: &str, value: &str) -> Result<()> {
+    if !matches!(value, "0x03f" | "0x00f") {
+        bail!("Invalid persisted network advertisement value");
+    }
+    set_advertise(device, value)
+}
+
+pub fn cleanup() {
+    for runtime in runtime_slots().lock().unwrap().drain(..) {
+        runtime.stop.store(true, Ordering::Release);
+        runtime.worker.thread().unpark();
+        let _ = runtime.worker.join();
+    }
+}
+
+fn runtime_slots() -> &'static Mutex<Vec<Runtime>> {
+    RUNTIMES.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -530,5 +738,38 @@ mod tests {
         assert!(context_pairs("features", "gro on;reboot").is_err());
         assert!(context_pairs("ring", "rx many").is_ok());
         assert!(parse_bool("sometimes").is_err());
+    }
+
+    #[test]
+    fn dynamic_link_reduces_after_idle_and_recovers_on_traffic() {
+        let mut device = DynamicDevice {
+            name: "eth0".to_string(),
+            previous: NetCounters::default(),
+            max_rx_delta: 100,
+            max_tx_delta: 100,
+            idle_rx: 0,
+            idle_tx: 0,
+            reduced: false,
+        };
+        for _ in 0..IDLE_LEVEL_STEPS - 1 {
+            assert_eq!(
+                update_dynamic_level(&mut device, NetCounters::default()),
+                None
+            );
+        }
+        assert_eq!(
+            update_dynamic_level(&mut device, NetCounters::default()),
+            Some(true)
+        );
+        assert_eq!(
+            update_dynamic_level(
+                &mut device,
+                NetCounters {
+                    rx_bytes: 100,
+                    tx_bytes: 100,
+                }
+            ),
+            Some(false)
+        );
     }
 }

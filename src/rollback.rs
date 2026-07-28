@@ -298,6 +298,7 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
         "hdparm-spindown" => crate::tuning::disk::restore_hdparm("spindown", target, original),
         "net-channels" => crate::tuning::network::restore_channels(target, original),
         "net-ethtool" => crate::tuning::network::restore_ethtool(target, original),
+        "net-advertise" => crate::tuning::network::restore_advertise(target, original),
         "irq-affinity" => crate::tuning::irq::write_raw(target, original),
         _ => bail!("Unknown rollback key type in '{key}'"),
     }
