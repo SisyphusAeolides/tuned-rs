@@ -50,6 +50,10 @@ if command -v gfortran >/dev/null 2>&1; then
         formal/fortran/tuned_runtime.f90 \
         tuned-runtime-check \
         "Fortran runtime unit selection model"
+    run_fortran_model \
+        formal/fortran/tuned_sysfs.f90 \
+        tuned-sysfs-check \
+        "Fortran generic sysfs safety model"
 else
     echo "Fortran models: skipped (gfortran not found)" >&2
     missing=1
@@ -63,8 +67,9 @@ if command -v idris2 >/dev/null 2>&1; then
         idris2 --check TunedVerification.idr
         idris2 --check TunedUnits.idr
         idris2 --check TunedRuntime.idr
+        idris2 --check TunedSysfs.idr
     )
-    echo "Idris profile, instance, verification, unit, and runtime models: passed"
+    echo "Idris profile, instance, verification, unit, runtime, and sysfs models: passed"
 else
     echo "Idris models: skipped (idris2 not found)" >&2
     missing=1
@@ -76,7 +81,8 @@ if command -v agda >/dev/null 2>&1; then
     agda --safe -i formal/agda formal/agda/TunedVerification.agda
     agda --safe -i formal/agda formal/agda/TunedUnits.agda
     agda --safe -i formal/agda formal/agda/TunedRuntime.agda
-    echo "Agda rollback, instance, verification, unit, and runtime proofs: passed"
+    agda --safe -i formal/agda formal/agda/TunedSysfs.agda
+    echo "Agda rollback, instance, verification, unit, runtime, and sysfs proofs: passed"
 else
     echo "Agda proofs: skipped (agda not found)" >&2
     missing=1
