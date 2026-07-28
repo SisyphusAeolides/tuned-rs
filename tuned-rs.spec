@@ -52,6 +52,15 @@ make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %postun
 %systemd_postun_with_restart tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
+if [ "$1" -eq 0 ]; then
+  rm -f %{_sysconfdir}/grub.d/00_tuned || :
+fi
+
+%posttrans
+if [ -d %{_sysconfdir}/grub.d ]; then
+  cp -a %{_datadir}/tuned/grub2/00_tuned %{_sysconfdir}/grub.d/00_tuned
+  restorecon %{_sysconfdir}/grub.d/00_tuned >/dev/null 2>&1 || :
+fi
 
 %check
 CARGO_NET_OFFLINE=true cargo test --frozen --all-targets
@@ -85,7 +94,10 @@ make packaging-check
 %dir %{_sysconfdir}/tuned/profiles
 %config(noreplace) %{_sysconfdir}/tuned/tuned-main.conf
 %config(noreplace) %{_sysconfdir}/tuned/ppd.conf
+%config(noreplace) %verify(not size mtime md5) %{_sysconfdir}/tuned/bootcmdline
 %{_prefix}/lib/tuned/
+%{_prefix}/lib/kernel/install.d/92-tuned.install
+%{_datadir}/tuned/grub2/00_tuned
 
 %changelog
 * Mon Jul 27 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.1.0-3

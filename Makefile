@@ -9,6 +9,8 @@ DOCDIR ?= /usr/share/doc/tuned-rs
 MANDIR ?= /usr/share/man
 ETCTUNEDDIR ?= /etc/tuned
 PROFILEDIR ?= /usr/lib/tuned/profiles
+TUNEDDATADIR ?= /usr/share/tuned
+KERNELINSTALLDIR ?= /usr/lib/kernel/install.d
 
 .PHONY: all build test check packaging-check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm
 
@@ -51,6 +53,9 @@ packaging-check:
 	! grep -q 'Conflicts=.*tuned-ppd.service' packaging/tuned-rs-ppd.service
 	test -f packaging/com.redhat.tuned.service
 	test -f packaging/tuned-adm.8
+	test -x packaging/00_tuned.grub
+	test -x packaging/92-tuned.install
+	test -f packaging/bootcmdline
 
 test:
 	cargo test --locked --all-targets
@@ -88,11 +93,14 @@ install-data: install-config install-profiles
 	install -D -m 0644 packaging/tuned-rs.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs.8
 	install -D -m 0644 packaging/tuned-adm.8 $(DESTDIR)$(MANDIR)/man8/tuned-adm.8
 	install -D -m 0644 packaging/tuned-rs-ppd.8 $(DESTDIR)$(MANDIR)/man8/tuned-rs-ppd.8
+	install -D -m 0755 packaging/00_tuned.grub $(DESTDIR)$(TUNEDDATADIR)/grub2/00_tuned
+	install -D -m 0755 packaging/92-tuned.install $(DESTDIR)$(KERNELINSTALLDIR)/92-tuned.install
 
 install-config:
 	install -d $(DESTDIR)$(ETCTUNEDDIR)/profiles
 	install -D -m 0644 packaging/tuned-main.conf $(DESTDIR)$(ETCTUNEDDIR)/tuned-main.conf
 	install -D -m 0644 packaging/ppd.conf $(DESTDIR)$(ETCTUNEDDIR)/ppd.conf
+	install -D -m 0644 packaging/bootcmdline $(DESTDIR)$(ETCTUNEDDIR)/bootcmdline
 	find $(DESTDIR)$(ETCTUNEDDIR)/profiles -type d -exec chmod 0755 {} + 2>/dev/null || true
 
 install-profiles:
