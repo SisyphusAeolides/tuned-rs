@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.2
+Version:        0.2.3
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -42,7 +42,7 @@ mv cargo-config.toml .cargo/config.toml
 CARGO_NET_OFFLINE=true CARGO_PROFILE_RELEASE_DEBUG=2 cargo build --frozen --release
 
 %install
-make install-bin DESTDIR=%{buildroot}
+make install-bin DESTDIR=%{buildroot} BINDIR=%{_bindir} SBINDIR=%{_sbindir}
 make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %post
@@ -110,6 +110,9 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.3-1
+- Honor merged-usr binary directories on Fedora
+
 * Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.2-1
 - Complete Rust 1.75 lint compatibility for the control center
 
