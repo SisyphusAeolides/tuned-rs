@@ -15,7 +15,9 @@ pub mod selinux;
 pub mod storage;
 pub mod sysctl;
 pub mod sysfs;
+pub mod systemd;
 pub mod thermal;
+pub mod uncore;
 pub mod usb;
 pub mod video;
 pub mod vm;
@@ -65,6 +67,8 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "scsi_host" => scsi_host::apply_options(rollback, &unit.devices, &unit.options),
         "selinux" => selinux::apply_options(rollback, &unit.options),
         "usb" => usb::apply_options(rollback, &unit.devices, &unit.options),
+        "systemd" => systemd::apply_options(rollback, &unit.options),
+        "uncore" => uncore::apply_options(rollback, &unit.devices, &unit.options),
         "script" => {
             if let Some(scripts) = option_value(&unit.options, "script") {
                 script::apply_scripts(rollback, scripts)?;
@@ -130,7 +134,12 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
             unit.name
         );
     }
-    if unit.devices != "*" && !matches!(unit.plugin_type.as_str(), "disk" | "scsi_host" | "usb") {
+    if unit.devices != "*"
+        && !matches!(
+            unit.plugin_type.as_str(),
+            "disk" | "scsi_host" | "usb" | "uncore"
+        )
+    {
         bail!(
             "Profile unit '{}' selects devices '{}' for plugin '{}', but that device selector is not implemented yet",
             unit.name,

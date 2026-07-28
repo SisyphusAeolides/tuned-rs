@@ -45,6 +45,8 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "scsi_host" => verify_scsi_host(&unit, report),
             "selinux" => verify_selinux(&unit, report),
             "usb" => verify_usb(&unit, report),
+            "systemd" => verify_systemd(&unit, report),
+            "uncore" => verify_uncore(&unit, report),
             "script" => verify_script(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
@@ -93,7 +95,12 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
         );
         valid = false;
     }
-    if unit.devices != "*" && !matches!(unit.plugin_type.as_str(), "disk" | "scsi_host" | "usb") {
+    if unit.devices != "*"
+        && !matches!(
+            unit.plugin_type.as_str(),
+            "disk" | "scsi_host" | "usb" | "uncore"
+        )
+    {
         issue(
             report,
             VerificationIssueKind::Unsupported,
@@ -170,6 +177,36 @@ fn verify_usb(unit: &ProfileUnit, report: &mut VerificationReport) {
             unit.option("autosuspend").unwrap_or_default(),
             None,
             "USB autosuspend settings do not match",
+        );
+    }
+}
+
+fn verify_systemd(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::systemd::verify_options(&unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "systemd",
+            "cpu_affinity",
+            &unit.name,
+            unit.option("cpu_affinity").unwrap_or_default(),
+            None,
+            "systemd CPUAffinity does not match",
+        );
+    }
+}
+
+fn verify_uncore(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::uncore::verify_options(&unit.devices, &unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "uncore",
+            "frequency",
+            &unit.name,
+            "configured uncore frequency limits",
+            None,
+            "Intel uncore frequency limits do not match",
         );
     }
 }

@@ -200,7 +200,10 @@ impl Rollback {
 }
 
 fn default_managed_files() -> Vec<PathBuf> {
-    vec![config::resolve_path("/etc/modprobe.d/tuned.conf")]
+    vec![
+        config::resolve_path("/etc/modprobe.d/tuned.conf"),
+        config::resolve_path("/etc/systemd/system.conf.d/00-tuned.conf"),
+    ]
 }
 
 fn normalize_order(state: &mut RollbackState) {

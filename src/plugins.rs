@@ -236,6 +236,25 @@ const USB_OPTIONS: &[PluginOption] = &[PluginOption {
     hint: "USB autosuspend switch for matching USB devices.",
 }];
 
+const SYSTEMD_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "cpu_affinity",
+    default_value: "",
+    hint: "Default CPU affinity inherited by the systemd manager and its services.",
+}];
+
+const UNCORE_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "max_freq_khz",
+        default_value: "",
+        hint: "Maximum Intel uncore frequency in kHz or as a hardware-range percentage.",
+    },
+    PluginOption {
+        name: "min_freq_khz",
+        default_value: "",
+        hint: "Minimum Intel uncore frequency in kHz or as a hardware-range percentage.",
+    },
+];
+
 const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
     name: "script",
     default_value: "",
@@ -474,6 +493,16 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: USB_OPTIONS,
     },
     PluginDescriptor {
+        name: "systemd",
+        documentation: "Controls systemd manager defaults through TuneD's system.conf drop-in.",
+        options: SYSTEMD_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "uncore",
+        documentation: "Controls Intel uncore frequency limits for matching uncore devices.",
+        options: UNCORE_OPTIONS,
+    },
+    PluginDescriptor {
         name: "script",
         documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
         options: SCRIPT_OPTIONS,
@@ -581,6 +610,8 @@ mod tests {
             "scsi_host",
             "selinux",
             "usb",
+            "systemd",
+            "uncore",
             "script",
             "gpu",
             "storage",
