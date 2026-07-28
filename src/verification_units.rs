@@ -10,7 +10,7 @@ use crate::profile_units::{option_value, ProfileUnit};
 use crate::tuning;
 use crate::verification::{VerificationIssue, VerificationIssueKind, VerificationReport};
 
-pub fn augment(profile: &Profile, report: &mut VerificationReport) {
+pub fn augment(profile: &Profile, report: &mut VerificationReport, ignore_missing: bool) {
     let units = match profile_runtime::active_units(profile) {
         Ok(units) => units,
         Err(error) => {
@@ -76,7 +76,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "acpi" => verify_acpi(&unit, report),
             "net" | "network" => verify_network(&unit, report),
             "audio" => verify_audio(&unit, report),
-            "video" => verify_video(&unit, report),
+            "video" => verify_video(&unit, report, ignore_missing),
             "scsi_host" => verify_scsi_host(&unit, report),
             "selinux" => verify_selinux(&unit, report),
             "usb" => verify_usb(&unit, report),
@@ -814,8 +814,8 @@ fn verify_audio(unit: &ProfileUnit, report: &mut VerificationReport) {
     }
 }
 
-fn verify_video(unit: &ProfileUnit, report: &mut VerificationReport) {
-    let result = tuning::video::verify_options(&unit.devices, &unit.options, false);
+fn verify_video(unit: &ProfileUnit, report: &mut VerificationReport, ignore_missing: bool) {
+    let result = tuning::video::verify_options(&unit.devices, &unit.options, ignore_missing);
     report.checked += 1;
     if !result {
         report.issues.push(VerificationIssue {

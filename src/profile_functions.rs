@@ -14,20 +14,19 @@ pub fn evaluate(invocation: &str) -> Result<String> {
     let args = fields.collect::<Vec<_>>();
     match name {
         "assertion" => {
-            exact_args(name, &args, 3)?;
-            if args[1] != args[2] {
-                bail!(
-                    "Assertion '{}' failed: '{}' != '{}'",
-                    args[0],
-                    args[1],
-                    args[2]
-                );
+            min_args(name, &args, 3)?;
+            let left = args[1..args.len() - 1].join(":");
+            let right = args[args.len() - 1];
+            if left != right {
+                bail!("Assertion '{}' failed: '{}' != '{}'", args[0], left, right);
             }
             Ok(String::new())
         }
         "assertion_non_equal" => {
-            exact_args(name, &args, 3)?;
-            if args[1] == args[2] {
+            min_args(name, &args, 3)?;
+            let left = args[1..args.len() - 1].join(":");
+            let right = args[args.len() - 1];
+            if left == right {
                 bail!("Assertion '{}' failed: values are equal", args[0]);
             }
             Ok(String::new())
@@ -158,7 +157,10 @@ fn exact_args(name: &str, args: &[&str], expected: usize) -> Result<()> {
     if args.len() == expected {
         Ok(())
     } else {
-        bail!("TuneD function '{name}' requires {expected} argument(s)")
+        bail!(
+            "TuneD function '{name}' requires {expected} argument(s), got {}",
+            args.len()
+        )
     }
 }
 
@@ -448,5 +450,13 @@ mod tests {
         assert_eq!(evaluate("s2kb:-67").unwrap(), "-34");
         assert_eq!(evaluate("strip:  a :b  ").unwrap(), "a b");
         assert!(evaluate("missing:value").is_err());
+    }
+
+    #[test]
+    fn assertions_preserve_colons_inside_the_compared_value() {
+        assert_eq!(
+            evaluate("assertion_non_equal:value is set:cstate.name:C1|10:${value}").unwrap(),
+            ""
+        );
     }
 }

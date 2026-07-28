@@ -37,12 +37,16 @@ impl VariableSet {
     }
 
     pub fn expand(&self, raw: &str) -> Result<String> {
-        expand_with(raw, &self.values)
+        expand_with(raw, &self.values, true)
     }
 
     fn add(&mut self, name: &str, raw: &str) -> Result<()> {
         validate_variable_name(name)?;
-        let value = self.expand(raw)?;
+        if raw.trim() == format!("${{{name}}}") {
+            self.values.entry(name.to_string()).or_default();
+            return Ok(());
+        }
+        let value = expand_with(raw, &self.values, false)?;
         self.values.insert(name.to_string(), value);
         Ok(())
     }
@@ -147,7 +151,7 @@ fn expand_optional(value: &mut Option<String>, variables: &VariableSet) -> Resul
     Ok(())
 }
 
-fn expand_with(raw: &str, values: &BTreeMap<String, String>) -> Result<String> {
+fn expand_with(raw: &str, values: &BTreeMap<String, String>, finalize: bool) -> Result<String> {
     const ESCAPED: &str = "\u{1e}TUNED_ESCAPED_VARIABLE\u{1e}";
     const DOUBLED: &str = "\u{1e}TUNED_DOUBLED_DOLLAR\u{1e}";
     const UNKNOWN: &str = "\u{1e}TUNED_UNKNOWN_VARIABLE\u{1e}";
@@ -158,11 +162,15 @@ fn expand_with(raw: &str, values: &BTreeMap<String, String>) -> Result<String> {
 
     for _ in 0..128 {
         let Some(first_start) = current.find("${") else {
-            return Ok(current
-                .replace(ESCAPED, "${")
-                .replace(DOUBLED, "${")
-                .replace(UNKNOWN, "${")
-                .replace(LITERAL_END, "}"));
+            return Ok(if finalize {
+                current
+                    .replace(ESCAPED, "${")
+                    .replace(DOUBLED, "${")
+                    .replace(UNKNOWN, "${")
+                    .replace(LITERAL_END, "}")
+            } else {
+                current
+            });
         };
         let Some(relative_end) = current[first_start..].find('}') else {
             bail!("Unterminated variable or function expression in '{raw}'");
@@ -177,10 +185,7 @@ fn expand_with(raw: &str, values: &BTreeMap<String, String>) -> Result<String> {
         } else if expression.starts_with("i:") {
             format!("{UNKNOWN}{expression}{LITERAL_END}")
         } else {
-            values
-                .get(expression)
-                .cloned()
-                .unwrap_or_else(|| format!("{UNKNOWN}{expression}{LITERAL_END}"))
+            values.get(expression).cloned().unwrap_or_default()
         };
         current.replace_range(start..=end, &replacement);
     }
@@ -313,6 +318,28 @@ mod tests {
             "/srv/data"
         );
         assert_eq!(variables.environment()["TUNED_FILE"], "/srv/data");
+    }
+
+    #[test]
+    fn self_assignment_preserves_an_external_value_or_defaults_empty() {
+        let mut variables = VariableSet::default();
+        variables.add("isolated_cores", "2-7").unwrap();
+        variables
+            .add("isolated_cores", "${isolated_cores}")
+            .unwrap();
+        variables
+            .add("no_balance_cores", "${no_balance_cores}")
+            .unwrap();
+        variables
+            .add("missing_marker", "\\${no_balance_cores}")
+            .unwrap();
+
+        assert_eq!(variables.expand("${isolated_cores}").unwrap(), "2-7");
+        assert_eq!(variables.expand("${no_balance_cores}").unwrap(), "");
+        assert_eq!(
+            variables.expand("${missing_marker}").unwrap(),
+            "${no_balance_cores}"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.4
+Version:        0.2.5
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -110,6 +110,9 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.5-1
+- Honor verify --ignore-missing for vendor-specific video controls
+
 * Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.4-1
 - Tolerate rollback of devices removed since the profile was applied
 - Avoid duplicate systemd alias restart jobs during package upgrades

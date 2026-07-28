@@ -160,7 +160,7 @@ impl Daemon {
 
         match run_blocking(move || {
             let mut report = verification::verify_profile(&profile);
-            verification_units::augment(&profile, &mut report);
+            verification_units::augment(&profile, &mut report, ignore_missing);
             verification_sysfs::augment(&profile, &mut report);
             Ok(report)
         }) {

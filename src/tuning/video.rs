@@ -350,6 +350,20 @@ mod tests {
     }
 
     #[test]
+    fn ignore_missing_accepts_absent_vendor_controls() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        fs::create_dir_all(root.path().join("sys/class/drm")).unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let options = vec![("panel_power_savings".to_string(), "0".to_string())];
+
+        assert!(!verify_options("*", &options, false));
+        assert!(verify_options("*", &options, true));
+
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
     fn device_selector_limits_panel_controls_and_rolls_back() {
         let _env_guard = crate::config::test_env_lock();
         let root = TempDir::new().unwrap();

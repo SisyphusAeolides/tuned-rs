@@ -20,7 +20,7 @@ METAINFO_DIR ?= /usr/share/metainfo
 all: build
 
 tarball:
-	git archive --format=tar.gz --prefix=tuned-rs-0.2.4/ --output=tuned-rs-0.2.4.tar.gz HEAD
+	git archive --format=tar.gz --prefix=tuned-rs-0.2.5/ --output=tuned-rs-0.2.5.tar.gz HEAD
 
 vendor:
 	builddir="$$(mktemp -d)"; \
