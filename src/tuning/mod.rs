@@ -3,6 +3,7 @@ pub mod audio;
 pub mod battery;
 pub mod cpu;
 pub mod disk;
+pub mod generic_sysfs;
 pub mod gpu;
 pub mod hermes;
 pub mod modifiers;
@@ -48,6 +49,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             }
             Ok(())
         }
+        "sysfs" => generic_sysfs::apply_options(rollback, &unit.options),
         "vm" => vm::apply_options(rollback, &unit.options),
         "disk" => disk::apply_options(
             rollback,
@@ -133,6 +135,10 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
         );
     }
 
+    if matches!(unit.plugin_type.as_str(), "modules" | "sysctl" | "sysfs") {
+        return Ok(());
+    }
+
     let Some(descriptor) = plugins::descriptor(&unit.plugin_type) else {
         bail!(
             "Profile unit '{}' requires unimplemented plugin type '{}'",
@@ -140,9 +146,6 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
             unit.plugin_type
         );
     };
-    if matches!(unit.plugin_type.as_str(), "modules" | "sysctl") {
-        return Ok(());
-    }
     for (option, _) in &unit.options {
         if !descriptor
             .options
@@ -302,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_dynamic_options_for_modules_and_sysctl() {
+    fn accepts_dynamic_options_for_modules_sysctl_and_sysfs() {
         let modules = ProfileUnit::from_options(
             "modules",
             vec![("snd_hda_intel".to_string(), "power_save=1".to_string())],
@@ -313,7 +316,16 @@ mod tests {
             vec![("vm.swappiness".to_string(), "10".to_string())],
         )
         .unwrap();
+        let sysfs = ProfileUnit::from_options(
+            "sysfs",
+            vec![(
+                "/sys/devices/system/machinecheck/machinecheck*/ignore_ce".to_string(),
+                "1".to_string(),
+            )],
+        )
+        .unwrap();
         assert!(validate_unit_contract(&modules).is_ok());
         assert!(validate_unit_contract(&sysctl).is_ok());
+        assert!(validate_unit_contract(&sysfs).is_ok());
     }
 }
