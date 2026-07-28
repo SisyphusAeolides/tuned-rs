@@ -165,16 +165,20 @@ pub fn cleanup_runtime_resources() {
 fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
     for (option, value) in &unit.options {
         match option.as_str() {
-            "governor" => cpu::apply_governor(rollback, value)?,
-            "energy_perf_bias" => cpu::apply_energy_perf_bias(rollback, value)?,
-            "energy_performance_preference" => cpu::apply_epp(rollback, value)?,
+            "governor" => cpu::apply_governor_for(rollback, value, &unit.devices)?,
+            "energy_perf_bias" => cpu::apply_energy_perf_bias_for(rollback, value, &unit.devices)?,
+            "energy_performance_preference" => cpu::apply_epp_for(rollback, value, &unit.devices)?,
             "min_perf_pct" => cpu::apply_min_perf_pct(rollback, value)?,
             "max_perf_pct" => cpu::apply_max_perf_pct(rollback, value)?,
-            "boost" => cpu::apply_boost(rollback, value)?,
+            "boost" => cpu::apply_boost_for(rollback, value, &unit.devices)?,
             "no_turbo" => cpu::apply_no_turbo(rollback, value)?,
             "force_latency" => cpu::apply_force_latency(rollback, value)?,
-            "pm_qos_resume_latency_us" => cpu::apply_pm_qos_resume_latency_us(rollback, value)?,
-            "sampling_down_factor" => cpu::apply_sampling_down_factor(rollback, value)?,
+            "pm_qos_resume_latency_us" => {
+                cpu::apply_pm_qos_resume_latency_us_for(rollback, value, &unit.devices)?
+            }
+            "sampling_down_factor" => {
+                cpu::apply_sampling_down_factor_for(rollback, value, &unit.devices)?
+            }
             "load_threshold" | "latency_low" | "latency_high" => {}
             other => bail!(
                 "Profile unit '{}' uses unsupported CPU option '{other}'",
@@ -203,7 +207,7 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq" | "mounts"
+            "cpu" | "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network" | "irq" | "mounts"
         )
     {
         bail!(

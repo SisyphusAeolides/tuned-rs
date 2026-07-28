@@ -53,10 +53,35 @@ pub fn is_allowed_governor(governor: &str) -> bool {
 }
 
 pub fn is_allowed_epp(value: &str) -> bool {
-    ALLOWED_EPP_VALUES.contains(&value)
+    ALLOWED_EPP_VALUES.contains(&value) || value.parse::<u8>().is_ok()
 }
 
 pub fn apply_governor(rollback: &Rollback, raw: &str) -> Result<()> {
+    apply_governor_for(rollback, raw, "*")
+}
+
+pub fn apply_governor_for(rollback: &Rollback, raw: &str, devices: &str) -> Result<()> {
+    if devices != "*" {
+        let mut updated = 0;
+        for cpu in selected_cpu_directories(devices)? {
+            let available_path = cpu.join("cpufreq/scaling_available_governors");
+            let target = cpu.join("cpufreq/scaling_governor");
+            if !available_path.is_file() || !target.is_file() {
+                continue;
+            }
+            let available = read_trimmed(&available_path)?;
+            if let Some(governor) =
+                resolve_choice_for_available(raw, &available, is_allowed_governor)
+            {
+                write_cpu_node(rollback, &target, &governor)?;
+                updated += 1;
+            }
+        }
+        if updated == 0 {
+            warn!("No selected CPU tuning nodes were updated");
+        }
+        return Ok(());
+    }
     let available = read_available_values(CPUFREQ_BASE, "scaling_available_governors")?;
     let Some(governor) = resolve_choice_for_available(raw, &available, is_allowed_governor) else {
         warn!("No supported governor found in '{raw}' for available [{available}]");
@@ -66,6 +91,24 @@ pub fn apply_governor(rollback: &Rollback, raw: &str) -> Result<()> {
 }
 
 pub fn apply_epp(rollback: &Rollback, raw: &str) -> Result<()> {
+    apply_epp_for(rollback, raw, "*")
+}
+
+pub fn apply_epp_for(rollback: &Rollback, raw: &str, devices: &str) -> Result<()> {
+    if devices != "*" {
+        for cpu in selected_cpu_directories(devices)? {
+            let available_path = cpu.join("cpufreq/energy_performance_available_preferences");
+            let target = cpu.join("cpufreq/energy_performance_preference");
+            if !available_path.is_file() || !target.is_file() {
+                continue;
+            }
+            let available = read_trimmed(&available_path)?;
+            if let Some(epp) = resolve_choice_for_available(raw, &available, is_allowed_epp) {
+                write_cpu_node(rollback, &target, &epp)?;
+            }
+        }
+        return Ok(());
+    }
     let available =
         read_available_values(CPUFREQ_BASE, "energy_performance_available_preferences")?;
     if available.is_empty() {
@@ -80,8 +123,12 @@ pub fn apply_epp(rollback: &Rollback, raw: &str) -> Result<()> {
 }
 
 pub fn apply_energy_perf_bias(rollback: &Rollback, raw: &str) -> Result<()> {
+    apply_energy_perf_bias_for(rollback, raw, "*")
+}
+
+pub fn apply_energy_perf_bias_for(rollback: &Rollback, raw: &str, devices: &str) -> Result<()> {
     let candidates = fallback_values(raw)?;
-    let mut targets = cpu_directories()?
+    let mut targets = selected_cpu_directories(devices)?
         .into_iter()
         .map(|cpu| cpu.join("power/energy_perf_bias"))
         .filter(|path| path.is_file())
@@ -126,12 +173,16 @@ pub fn apply_max_perf_pct(rollback: &Rollback, raw: &str) -> Result<()> {
 }
 
 pub fn apply_boost(rollback: &Rollback, raw: &str) -> Result<()> {
+    apply_boost_for(rollback, raw, "*")
+}
+
+pub fn apply_boost_for(rollback: &Rollback, raw: &str, devices: &str) -> Result<()> {
     let boost = tuned_bool(raw).with_context(|| format!("Invalid CPU boost value '{raw}'"))?;
     let boost_value = if boost { "1" } else { "0" };
     let no_turbo_value = if boost { "0" } else { "1" };
     let mut updated = 0usize;
 
-    for policy in policy_directories()? {
+    for policy in selected_policy_directories(devices)? {
         let target = policy.join("boost");
         if target.is_file() {
             write_cpu_node(rollback, &target, boost_value)?;
@@ -157,9 +208,17 @@ pub fn apply_no_turbo(rollback: &Rollback, raw: &str) -> Result<()> {
 }
 
 pub fn apply_pm_qos_resume_latency_us(rollback: &Rollback, raw: &str) -> Result<()> {
+    apply_pm_qos_resume_latency_us_for(rollback, raw, "*")
+}
+
+pub fn apply_pm_qos_resume_latency_us_for(
+    rollback: &Rollback,
+    raw: &str,
+    devices: &str,
+) -> Result<()> {
     validate_scalar(raw)?;
     let mut updated = 0usize;
-    for cpu in cpu_directories()? {
+    for cpu in selected_cpu_directories(devices)? {
         let target = cpu.join("power/pm_qos_resume_latency_us");
         if target.is_file() {
             write_cpu_node(rollback, &target, raw.trim())?;
@@ -173,6 +232,10 @@ pub fn apply_pm_qos_resume_latency_us(rollback: &Rollback, raw: &str) -> Result<
 }
 
 pub fn apply_sampling_down_factor(rollback: &Rollback, raw: &str) -> Result<()> {
+    apply_sampling_down_factor_for(rollback, raw, "*")
+}
+
+pub fn apply_sampling_down_factor_for(rollback: &Rollback, raw: &str, devices: &str) -> Result<()> {
     let value = raw
         .trim()
         .parse::<u64>()
@@ -183,7 +246,7 @@ pub fn apply_sampling_down_factor(rollback: &Rollback, raw: &str) -> Result<()> 
 
     let mut updated = 0usize;
     let mut governors = HashSet::new();
-    for policy in policy_directories()? {
+    for policy in selected_policy_directories(devices)? {
         let governor_path = policy.join("scaling_governor");
         if let Ok(governor) = read_trimmed(&governor_path) {
             governors.insert(governor);
@@ -511,6 +574,44 @@ fn cpu_directories() -> Result<Vec<PathBuf>> {
     Ok(cpus)
 }
 
+fn selected_cpu_directories(devices: &str) -> Result<Vec<PathBuf>> {
+    let cpus = cpu_directories()?;
+    if devices == "*" {
+        return Ok(cpus);
+    }
+    let names = cpus
+        .iter()
+        .filter_map(|path| path.file_name()?.to_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let selected = crate::device_matcher::filter_names(devices, names)
+        .into_iter()
+        .collect::<HashSet<_>>();
+    Ok(cpus
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| selected.contains(name))
+        })
+        .collect())
+}
+
+fn selected_policy_directories(devices: &str) -> Result<Vec<PathBuf>> {
+    if devices == "*" {
+        return policy_directories();
+    }
+    let base = crate::config::resolve_path(CPUFREQ_BASE);
+    Ok(selected_cpu_directories(devices)?
+        .into_iter()
+        .filter_map(|cpu| {
+            let name = cpu.file_name()?.to_str()?;
+            let id = name.strip_prefix("cpu")?;
+            let policy = base.join(format!("policy{id}"));
+            policy.is_dir().then_some(policy)
+        })
+        .collect())
+}
+
 fn scaling_governor_path(entry: &fs::DirEntry) -> PathBuf {
     entry.path().join("scaling_governor")
 }
@@ -674,6 +775,46 @@ mod tests {
         rollback.restore_all().unwrap();
         assert_eq!(
             fs::read_to_string(policy.join("scaling_governor")).unwrap(),
+            "powersave"
+        );
+
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn governor_device_selector_changes_only_matching_cpus() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        for cpu in ["cpu0", "cpu1"] {
+            let cpufreq = root
+                .path()
+                .join("sys/devices/system/cpu")
+                .join(cpu)
+                .join("cpufreq");
+            fs::create_dir_all(&cpufreq).unwrap();
+            fs::write(
+                cpufreq.join("scaling_available_governors"),
+                "performance powersave",
+            )
+            .unwrap();
+            fs::write(cpufreq.join("scaling_governor"), "powersave").unwrap();
+        }
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+
+        let rollback = Rollback::load().unwrap();
+        apply_governor_for(&rollback, "performance", "cpu1").unwrap();
+        let cpu_root = root.path().join("sys/devices/system/cpu");
+        assert_eq!(
+            fs::read_to_string(cpu_root.join("cpu0/cpufreq/scaling_governor")).unwrap(),
+            "powersave"
+        );
+        assert_eq!(
+            fs::read_to_string(cpu_root.join("cpu1/cpufreq/scaling_governor")).unwrap(),
+            "performance"
+        );
+        rollback.restore_all().unwrap();
+        assert_eq!(
+            fs::read_to_string(cpu_root.join("cpu1/cpufreq/scaling_governor")).unwrap(),
             "powersave"
         );
 
