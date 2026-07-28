@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{bail, Result};
@@ -49,6 +50,24 @@ const KNOBS: &[(&str, &str, &str)] = &[
 #[derive(Default)]
 struct RuntimeState {
     processes: Vec<ProcessSnapshot>,
+    cgroups: Vec<CgroupSnapshot>,
+    task_moves: Vec<TaskMove>,
+    cgroup_root: Option<PathBuf>,
+    mounted_cgroup_root: bool,
+    synthetic_cgroup_root: bool,
+}
+
+struct CgroupSnapshot {
+    path: PathBuf,
+    existed: bool,
+    cpus: Option<String>,
+    mems: Option<String>,
+}
+
+struct TaskMove {
+    pid: libc::pid_t,
+    identity: String,
+    original_tasks: PathBuf,
 }
 
 struct ProcessSnapshot {
@@ -67,10 +86,13 @@ struct SchedulerRule {
     policy: Option<i32>,
     priority: Option<i32>,
     affinity: Option<Vec<u8>>,
+    cgroup: Option<String>,
     pattern: Regex,
 }
 
 pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
+    cleanup();
+    initialize_cgroups(options)?;
     apply_isolation(rollback, options)?;
     apply_groups(options)?;
     for (name, raw) in options {
@@ -91,13 +113,41 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
 }
 
 pub fn cleanup() {
-    let Some(state) = runtime_slot().lock().unwrap().take() else {
+    let Some(mut state) = runtime_slot().lock().unwrap().take() else {
         return;
     };
-    for snapshot in state.processes.into_iter().rev() {
+    for moved in state.task_moves.drain(..).rev() {
+        if process_identity(moved.pid).as_deref() == Some(moved.identity.as_str()) {
+            let _ = fs::write(&moved.original_tasks, moved.pid.to_string());
+        }
+    }
+    for snapshot in state.processes.drain(..).rev() {
         if process_identity(snapshot.pid).as_deref() == Some(snapshot.identity.as_str()) {
             let _ = set_scheduler(snapshot.pid, snapshot.policy, snapshot.priority);
             let _ = set_affinity(snapshot.pid, &snapshot.affinity);
+        }
+    }
+    for snapshot in state.cgroups.drain(..).rev() {
+        if snapshot.existed {
+            if let Some(cpus) = snapshot.cpus {
+                let _ = fs::write(snapshot.path.join("cpuset.cpus"), cpus);
+            }
+            if let Some(mems) = snapshot.mems {
+                let _ = fs::write(snapshot.path.join("cpuset.mems"), mems);
+            }
+        } else {
+            if state.synthetic_cgroup_root {
+                let _ = fs::remove_file(snapshot.path.join("tasks"));
+                let _ = fs::remove_file(snapshot.path.join("cgroup.procs"));
+                let _ = fs::remove_file(snapshot.path.join("cpuset.cpus"));
+                let _ = fs::remove_file(snapshot.path.join("cpuset.mems"));
+            }
+            let _ = fs::remove_dir(&snapshot.path);
+        }
+    }
+    if state.mounted_cgroup_root {
+        if let Some(root) = &state.cgroup_root {
+            let _ = Command::new("umount").arg(root).status();
         }
     }
 }
@@ -106,7 +156,6 @@ fn apply_isolation(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
     let Some(isolated) = option_value(options, "isolated_cores") else {
         return Ok(());
     };
-    cleanup();
     let online = read_cpu_list(&config::resolve_path("/sys/devices/system/cpu/online"))?;
     let isolated = parse_cpu_list(isolated)?;
     let housekeeping = online
@@ -117,6 +166,32 @@ fn apply_isolation(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
         bail!("isolated_cores cannot contain every online CPU");
     }
     let desired = affinity_mask(&housekeeping)?;
+    let isolation_cgroup = option_value(options, "cgroup_for_isolated_cores")
+        .filter(|value| !value.trim().is_empty())
+        .map(sanitize_cgroup_name)
+        .transpose()?;
+    if let Some(group) = &isolation_cgroup {
+        let mut state = runtime_slot().lock().unwrap().take().unwrap_or_default();
+        let root = state
+            .cgroup_root
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Scheduler cgroup root is not initialized"))?;
+        let explicitly_configured = options.iter().any(|(name, _)| {
+            name.strip_prefix("cgroup.")
+                .and_then(|name| sanitize_cgroup_name(name).ok())
+                .is_some_and(|name| &name == group)
+        });
+        if !explicitly_configured {
+            initialize_cgroup(
+                &mut state,
+                &root,
+                group,
+                &format_cpu_list(&housekeeping),
+                true,
+            )?;
+        }
+        *runtime_slot().lock().unwrap() = Some(state);
+    }
     apply_irq_isolation(rollback, options, &housekeeping)?;
     let process_whitelist = regex_set(option_value(options, "ps_whitelist"))?;
     let process_blacklist = regex_set(option_value(options, "ps_blacklist"))?;
@@ -125,7 +200,7 @@ fn apply_isolation(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
         .map(parse_bool)
         .transpose()?
         .unwrap_or(true);
-    let mut state = RuntimeState::default();
+    let mut state = runtime_slot().lock().unwrap().take().unwrap_or_default();
     let own_pid = std::process::id() as libc::pid_t;
     for pid in process_ids()? {
         if pid == own_pid {
@@ -163,10 +238,15 @@ fn apply_isolation(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
                 return Err(error);
             }
         };
-        if original.affinity == desired {
+        if isolation_cgroup.is_none() && original.affinity == desired {
             continue;
         }
-        if let Err(error) = set_affinity(pid, &desired) {
+        let mutation = if let Some(group) = &isolation_cgroup {
+            move_task_to_cgroup(&mut state, pid, &original.identity, group)
+        } else {
+            set_affinity(pid, &desired)
+        };
+        if let Err(error) = mutation {
             if vanished(&error) {
                 continue;
             }
@@ -228,6 +308,218 @@ fn format_cpu_list(cpus: &[u32]) -> String {
         .join(",")
 }
 
+fn initialize_cgroups(options: &PluginOptions) -> Result<()> {
+    let configured = options
+        .iter()
+        .filter(|(name, value)| name.starts_with("cgroup.") && !value.trim().is_empty())
+        .collect::<Vec<_>>();
+    let isolated_group =
+        option_value(options, "cgroup_for_isolated_cores").filter(|value| !value.trim().is_empty());
+    let group_targets = options.iter().any(|(name, value)| {
+        name.starts_with("group.")
+            && value
+                .split(':')
+                .nth(3)
+                .is_some_and(|target| target.trim().starts_with("cgroup."))
+    });
+    if configured.is_empty() && isolated_group.is_none() && !group_targets {
+        return Ok(());
+    }
+
+    let raw_root = option_value(options, "cgroup_mount_point").unwrap_or("/sys/fs/cgroup/cpuset");
+    let root = resolve_cgroup_root(raw_root)?;
+    let initialize_mount = option_value(options, "cgroup_mount_point_init")
+        .map(parse_bool)
+        .transpose()?
+        .unwrap_or(false);
+    let initialize_groups = option_value(options, "cgroup_groups_init")
+        .map(parse_bool)
+        .transpose()?
+        .unwrap_or(true);
+    let synthetic = std::env::var_os("TUNED_RS_ROOT").is_some();
+    let mut mounted = false;
+    if !root.join("cpuset.cpus").is_file() {
+        if !initialize_mount {
+            bail!(
+                "Scheduler cgroup root {} is not an initialized cpuset hierarchy",
+                root.display()
+            );
+        }
+        fs::create_dir_all(&root)?;
+        if synthetic {
+            let online =
+                fs::read_to_string(config::resolve_path("/sys/devices/system/cpu/online"))?;
+            fs::write(root.join("cpuset.cpus"), online.trim())?;
+            fs::write(root.join("cpuset.mems"), "0")?;
+            fs::write(root.join("tasks"), "")?;
+        } else {
+            let status = Command::new("mount")
+                .args(["-t", "cgroup", "-o", "cpuset", "cpuset"])
+                .arg(&root)
+                .status()?;
+            if !status.success() {
+                bail!("Failed to mount cpuset hierarchy at {}", root.display());
+            }
+            mounted = true;
+        }
+    }
+
+    let mut state = RuntimeState {
+        cgroup_root: Some(root.clone()),
+        mounted_cgroup_root: mounted,
+        synthetic_cgroup_root: synthetic,
+        ..RuntimeState::default()
+    };
+    for (name, cpus) in configured {
+        let group = sanitize_cgroup_name(name.trim_start_matches("cgroup."))?;
+        initialize_cgroup(&mut state, &root, &group, cpus, initialize_groups)?;
+    }
+    if let Some(group) = isolated_group {
+        let group = sanitize_cgroup_name(group)?;
+        if !root.join(&group).is_dir() && !initialize_groups {
+            bail!("Scheduler cgroup '{}' does not exist", group.display());
+        }
+    }
+    *runtime_slot().lock().unwrap() = Some(state);
+    Ok(())
+}
+
+fn resolve_cgroup_root(raw: &str) -> Result<PathBuf> {
+    let logical = Path::new(raw.trim());
+    if !logical.is_absolute()
+        || logical
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+        || !logical.starts_with("/sys/fs/cgroup")
+    {
+        bail!("Scheduler cgroup root must remain below /sys/fs/cgroup");
+    }
+    Ok(config::resolve_path_buf(logical))
+}
+
+fn sanitize_cgroup_name(raw: &str) -> Result<PathBuf> {
+    let replaced = raw.trim().replace('.', "/");
+    if replaced.is_empty()
+        || replaced.split('/').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        })
+    {
+        bail!("Invalid scheduler cgroup name '{raw}'");
+    }
+    Ok(PathBuf::from(replaced))
+}
+
+fn initialize_cgroup(
+    state: &mut RuntimeState,
+    root: &Path,
+    group: &Path,
+    cpus: &str,
+    create: bool,
+) -> Result<()> {
+    parse_cpu_list(cpus)?;
+    let mut relative = PathBuf::new();
+    for component in group.components() {
+        relative.push(component);
+        let path = root.join(&relative);
+        let existed = path.is_dir();
+        if !existed && !create {
+            bail!("Scheduler cgroup {} does not exist", path.display());
+        }
+        if !existed {
+            fs::create_dir(&path)?;
+            if state.synthetic_cgroup_root {
+                fs::write(path.join("cpuset.cpus"), "")?;
+                fs::write(path.join("cpuset.mems"), "")?;
+                fs::write(path.join("tasks"), "")?;
+            }
+        }
+        if !state.cgroups.iter().any(|snapshot| snapshot.path == path) {
+            state.cgroups.push(CgroupSnapshot {
+                cpus: fs::read_to_string(path.join("cpuset.cpus")).ok(),
+                mems: fs::read_to_string(path.join("cpuset.mems")).ok(),
+                path: path.clone(),
+                existed,
+            });
+        }
+        let parent = path.parent().unwrap_or(root);
+        let mems = fs::read_to_string(parent.join("cpuset.mems"))?;
+        fs::write(path.join("cpuset.mems"), mems.trim())?;
+        if fs::read_to_string(path.join("cpuset.cpus"))
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            let parent_cpus = fs::read_to_string(parent.join("cpuset.cpus"))?;
+            fs::write(path.join("cpuset.cpus"), parent_cpus.trim())?;
+        }
+    }
+    fs::write(root.join(group).join("cpuset.cpus"), cpus.trim())?;
+    Ok(())
+}
+
+fn move_task_to_cgroup(
+    state: &mut RuntimeState,
+    pid: libc::pid_t,
+    identity: &str,
+    group: impl AsRef<Path>,
+) -> Result<()> {
+    let root = state
+        .cgroup_root
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Scheduler cgroup root is not initialized"))?;
+    let target_dir = root.join(group.as_ref());
+    if !target_dir.is_dir() {
+        bail!("Scheduler cgroup {} does not exist", target_dir.display());
+    }
+    let target = tasks_file(&target_dir)?;
+    if !state.task_moves.iter().any(|moved| moved.pid == pid) {
+        state.task_moves.push(TaskMove {
+            pid,
+            identity: identity.to_string(),
+            original_tasks: original_tasks_file(root, pid)?,
+        });
+    }
+    fs::write(target, pid.to_string())?;
+    Ok(())
+}
+
+fn tasks_file(group: &Path) -> Result<PathBuf> {
+    for leaf in ["tasks", "cgroup.procs"] {
+        let path = group.join(leaf);
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+    bail!("Scheduler cgroup {} has no task control", group.display())
+}
+
+fn original_tasks_file(root: &Path, pid: libc::pid_t) -> Result<PathBuf> {
+    let contents = fs::read_to_string(config::resolve_path(&format!("/proc/{pid}/cgroup")))?;
+    let mut unified = None;
+    for line in contents.lines() {
+        let fields = line.splitn(3, ':').collect::<Vec<_>>();
+        if fields.len() != 3 {
+            continue;
+        }
+        if fields[1]
+            .split(',')
+            .any(|controller| controller == "cpuset")
+        {
+            return tasks_file(&root.join(fields[2].trim_start_matches('/')));
+        }
+        if fields[0] == "0" && fields[1].is_empty() {
+            unified = Some(fields[2]);
+        }
+    }
+    if let Some(path) = unified {
+        return tasks_file(&root.join(path.trim_start_matches('/')));
+    }
+    bail!("PID {pid} has no cpuset cgroup membership")
+}
+
 fn apply_groups(options: &PluginOptions) -> Result<()> {
     let mut rules = options
         .iter()
@@ -277,12 +569,15 @@ fn apply_groups(options: &PluginOptions) -> Result<()> {
                 }
             }
         };
-        let policy = rule.policy.unwrap_or(snapshot.policy);
+        let snapshot_policy = snapshot.policy;
+        let snapshot_priority = snapshot.priority;
+        let snapshot_identity = snapshot.identity.clone();
+        let policy = rule.policy.unwrap_or(snapshot_policy);
         let priority = rule.priority.unwrap_or_else(|| {
             if rule.policy.is_some() {
                 0
             } else {
-                snapshot.priority
+                snapshot_priority
             }
         });
         if rule.policy.is_some() || rule.priority.is_some() {
@@ -296,6 +591,13 @@ fn apply_groups(options: &PluginOptions) -> Result<()> {
             if let Err(error) = set_affinity(pid, affinity) {
                 if !vanished(&error) {
                     warn!("Cannot set scheduler affinity for PID {pid}: {error}");
+                }
+            }
+        }
+        if let Some(group) = &rule.cgroup {
+            if let Err(error) = move_task_to_cgroup(&mut state, pid, &snapshot_identity, group) {
+                if !vanished(&error) {
+                    warn!("Cannot move PID {pid} to scheduler cgroup: {error}");
                 }
             }
         }
@@ -323,12 +625,17 @@ fn parse_group_rule(raw: &str, order: usize) -> Result<SchedulerRule> {
         "*" => None,
         value => Some(value.parse::<i32>()?),
     };
-    let affinity = match fields[3].trim() {
-        "*" => None,
-        value if value.starts_with("cgroup.") => {
-            bail!("Scheduler cgroup targets require cgroup initialization")
-        }
-        value => Some(parse_hex_affinity(value)?),
+    let (affinity, cgroup) = match fields[3].trim() {
+        "*" => (None, None),
+        value if value.starts_with("cgroup.") => (
+            None,
+            Some(
+                sanitize_cgroup_name(value.trim_start_matches("cgroup."))?
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        ),
+        value => (Some(parse_hex_affinity(value)?), None),
     };
     Ok(SchedulerRule {
         rule_priority,
@@ -336,6 +643,7 @@ fn parse_group_rule(raw: &str, order: usize) -> Result<SchedulerRule> {
         policy,
         priority,
         affinity,
+        cgroup,
         pattern: Regex::new(fields[4])?,
     })
 }
@@ -750,5 +1058,36 @@ mod tests {
         assert!(parse_group_rule("0:x:0:*:.*", 0).is_err());
         assert!(parse_group_rule("0:o:0:0:.*", 0).is_err());
         assert!(parse_group_rule("missing-fields", 0).is_err());
+        let cgroup = parse_group_rule("0:*:*:cgroup.latency.workers:.*", 0).unwrap();
+        assert_eq!(cgroup.cgroup.as_deref(), Some("latency/workers"));
+        assert!(sanitize_cgroup_name("../escape").is_err());
+        assert!(resolve_cgroup_root("/tmp/cgroup").is_err());
+    }
+
+    #[test]
+    fn initializes_nested_cpuset_groups_and_cleans_them_up() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        let online = root.path().join("sys/devices/system/cpu/online");
+        std::fs::create_dir_all(online.parent().unwrap()).unwrap();
+        std::fs::write(&online, "0-3").unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let options = vec![
+            ("cgroup_mount_point_init".to_string(), "true".to_string()),
+            ("cgroup.latency.workers".to_string(), "2-3".to_string()),
+        ];
+        initialize_cgroups(&options).unwrap();
+        let cgroup = root.path().join("sys/fs/cgroup/cpuset/latency/workers");
+        assert_eq!(
+            std::fs::read_to_string(cgroup.join("cpuset.cpus")).unwrap(),
+            "2-3"
+        );
+        assert_eq!(
+            std::fs::read_to_string(cgroup.join("cpuset.mems")).unwrap(),
+            "0"
+        );
+        cleanup();
+        assert!(!cgroup.exists());
+        std::env::remove_var("TUNED_RS_ROOT");
     }
 }
