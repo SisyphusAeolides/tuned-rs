@@ -7,8 +7,8 @@ use regex::RegexSet;
 
 use crate::config;
 use crate::profile::PluginOptions;
-use crate::rollback::Rollback;
 use crate::profile_units::option_value;
+use crate::rollback::Rollback;
 use crate::tuning::{generic_sysfs, sysctl};
 
 const KNOBS: &[(&str, &str, &str)] = &[
@@ -114,7 +114,10 @@ fn apply_isolation(options: &PluginOptions) -> Result<()> {
         let Some(identity) = process_identity(pid) else {
             continue;
         };
-        if process_blacklist.as_ref().is_some_and(|set| set.is_match(&identity)) {
+        if process_blacklist
+            .as_ref()
+            .is_some_and(|set| set.is_match(&identity))
+        {
             continue;
         }
         if cgroup_blacklist.as_ref().is_some_and(|set| {
@@ -193,11 +196,7 @@ fn get_affinity(pid: libc::pid_t) -> Result<Vec<u8>> {
     // SAFETY: `mask` is writable for the supplied byte length and Linux accepts
     // the cpuset as an opaque byte array through the cpu_set_t pointer type.
     let result = unsafe {
-        libc::sched_getaffinity(
-            pid,
-            mask.len(),
-            mask.as_mut_ptr().cast::<libc::cpu_set_t>(),
-        )
+        libc::sched_getaffinity(pid, mask.len(), mask.as_mut_ptr().cast::<libc::cpu_set_t>())
     };
     if result == 0 {
         Ok(mask)
@@ -237,7 +236,10 @@ fn read_cpu_list(path: &Path) -> Result<Vec<u32>> {
 
 fn parse_cpu_list(raw: &str) -> Result<Vec<u32>> {
     let mut cpus = Vec::new();
-    for field in raw.split([',', ' ', '\t']).filter(|field| !field.is_empty()) {
+    for field in raw
+        .split([',', ' ', '\t'])
+        .filter(|field| !field.is_empty())
+    {
         if let Some((start, end)) = field.split_once('-') {
             let start = start.parse::<u32>()?;
             let end = end.parse::<u32>()?;
@@ -266,12 +268,7 @@ fn regex_set(raw: Option<&str>) -> Result<Option<RegexSet>> {
 fn vanished(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<std::io::Error>()
-        .is_some_and(|error| {
-            matches!(
-                error.raw_os_error(),
-                Some(libc::ESRCH) | Some(libc::ENOENT)
-            )
-        })
+        .is_some_and(|error| matches!(error.raw_os_error(), Some(libc::ESRCH) | Some(libc::ENOENT)))
 }
 
 pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {

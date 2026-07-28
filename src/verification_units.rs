@@ -50,6 +50,8 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "irqbalance" => verify_irqbalance(&unit, report),
             "rtentsk" => verify_rtentsk(&unit, report),
             "scheduler" => verify_scheduler(&unit, report),
+            "eeepc_she" => verify_eeepc_she(&unit, report),
+            "bootloader" => verify_bootloader(&unit, report),
             "script" => verify_script(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
@@ -255,6 +257,36 @@ fn verify_scheduler(unit: &ProfileUnit, report: &mut VerificationReport) {
             "configured scheduler values",
             None,
             "kernel scheduler tunables do not match",
+        );
+    }
+}
+
+fn verify_eeepc_she(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::eeepc_she::verify() {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "eeepc_she",
+            "runtime-monitor",
+            &unit.name,
+            "active load monitor",
+            None,
+            "EeePC SHE runtime monitor is not active",
+        );
+    }
+}
+
+fn verify_bootloader(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::bootloader::verify_options(&unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "bootloader",
+            "cmdline",
+            &unit.name,
+            "configured kernel arguments",
+            None,
+            "active kernel command line does not include the profile arguments",
         );
     }
 }

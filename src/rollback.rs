@@ -90,6 +90,15 @@ impl Rollback {
 
     pub fn record_managed_file(&self, path: &Path) -> Result<()> {
         validate_managed_file(path, &self.managed_files)?;
+        self.record_file_snapshot("file", path)
+    }
+
+    pub fn record_boot_file(&self, path: &Path) -> Result<()> {
+        validate_boot_file(path)?;
+        self.record_file_snapshot("bootfile", path)
+    }
+
+    fn record_file_snapshot(&self, kind: &str, path: &Path) -> Result<()> {
         let snapshot = match fs::read(path) {
             Ok(contents) => ManagedFileSnapshot {
                 existed: true,
@@ -104,7 +113,7 @@ impl Rollback {
             }
         };
         let encoded = serde_json::to_string(&snapshot)?;
-        self.record_original(&rollback_key("file", &path.to_string_lossy()), &encoded)
+        self.record_original(&rollback_key(kind, &path.to_string_lossy()), &encoded)
     }
 
     pub fn restore_all(&self) -> Result<()> {
@@ -205,6 +214,7 @@ fn default_managed_files() -> Vec<PathBuf> {
         config::resolve_path("/etc/modprobe.d/tuned.conf"),
         config::resolve_path("/etc/systemd/system.conf.d/00-tuned.conf"),
         config::resolve_path("/etc/sysconfig/irqbalance"),
+        config::resolve_path("/etc/tuned/bootcmdline"),
     ]
 }
 
@@ -238,7 +248,14 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
             if Path::new(target) == config::resolve_path("/etc/sysconfig/irqbalance") {
                 crate::tuning::irqbalance::try_restart()?;
             }
+            if Path::new(target) == config::resolve_path("/etc/tuned/bootcmdline") {
+                crate::tuning::bootloader::sync_from_bootcmdline(Path::new(target))?;
+            }
             Ok(())
+        }
+        "bootfile" => {
+            validate_boot_file(Path::new(target))?;
+            restore_file_snapshot(Path::new(target), original)
         }
         "script" => crate::tuning::script::run_rollback_script(Path::new(target), original),
         "hdparm-apm" => crate::tuning::disk::restore_hdparm("apm", target, original),
@@ -250,6 +267,10 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
 
 fn restore_managed_file(path: &Path, encoded: &str, managed_files: &[PathBuf]) -> Result<()> {
     validate_managed_file(path, managed_files)?;
+    restore_file_snapshot(path, encoded)
+}
+
+fn restore_file_snapshot(path: &Path, encoded: &str) -> Result<()> {
     let snapshot: ManagedFileSnapshot = serde_json::from_str(encoded)
         .with_context(|| format!("Invalid file rollback snapshot for {}", path.display()))?;
     if snapshot.existed {
@@ -266,6 +287,21 @@ fn restore_managed_file(path: &Path, encoded: &str, managed_files: &[PathBuf]) -
         fs::remove_file(path).with_context(|| format!("Failed to remove {}", path.display()))?;
     }
     Ok(())
+}
+
+fn validate_boot_file(path: &Path) -> Result<()> {
+    let boot = config::resolve_path("/boot");
+    if path.parent() == Some(boot.as_path())
+        && path.file_name().is_some()
+        && path.components().count() == boot.components().count() + 1
+    {
+        Ok(())
+    } else {
+        bail!(
+            "Refusing boot-file rollback outside /boot: {}",
+            path.display()
+        )
+    }
 }
 
 fn validate_managed_file(path: &Path, allowed: &[PathBuf]) -> Result<()> {

@@ -297,10 +297,26 @@ const IRQBALANCE_OPTIONS: &[PluginOption] = &[PluginOption {
 }];
 
 const SCHEDULER_OPTIONS: &[PluginOption] = &[
-    PluginOption { name: "isolated_cores", default_value: "", hint: "CPUs isolated from general process affinity." },
-    PluginOption { name: "ps_blacklist", default_value: "", hint: "Semicolon-separated process regular expressions excluded from affinity changes." },
-    PluginOption { name: "cgroup_ps_blacklist", default_value: "", hint: "Cgroup regular expression excluded from process affinity changes." },
-    PluginOption { name: "runtime", default_value: "1", hint: "Runtime scheduler monitoring switch." },
+    PluginOption {
+        name: "isolated_cores",
+        default_value: "",
+        hint: "CPUs isolated from general process affinity.",
+    },
+    PluginOption {
+        name: "ps_blacklist",
+        default_value: "",
+        hint: "Semicolon-separated process regular expressions excluded from affinity changes.",
+    },
+    PluginOption {
+        name: "cgroup_ps_blacklist",
+        default_value: "",
+        hint: "Cgroup regular expression excluded from process affinity changes.",
+    },
+    PluginOption {
+        name: "runtime",
+        default_value: "1",
+        hint: "Runtime scheduler monitoring switch.",
+    },
     PluginOption {
         name: "sched_min_granularity_ns",
         default_value: "",
@@ -355,6 +371,63 @@ const SCHEDULER_OPTIONS: &[PluginOption] = &[
         name: "numa_balancing_scan_size_mb",
         default_value: "",
         hint: "NUMA balancing scan size in megabytes.",
+    },
+];
+
+const EEEPC_SHE_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "load_threshold_normal",
+        default_value: "0.6",
+        hint: "CPU-load threshold for restoring normal EeePC front-side-bus speed.",
+    },
+    PluginOption {
+        name: "load_threshold_powersave",
+        default_value: "0.4",
+        hint: "CPU-load threshold for selecting powersave EeePC front-side-bus speed.",
+    },
+    PluginOption {
+        name: "she_powersave",
+        default_value: "2",
+        hint: "EeePC Super Hybrid Engine powersave mode value.",
+    },
+    PluginOption {
+        name: "she_normal",
+        default_value: "1",
+        hint: "EeePC Super Hybrid Engine normal mode value.",
+    },
+];
+
+const BOOTLOADER_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "skip_grub_config",
+        default_value: "false",
+        hint:
+            "Record desired kernel arguments without modifying the active bootloader configuration.",
+    },
+    PluginOption {
+        name: "grub2_cfg_file",
+        default_value: "",
+        hint: "Custom GRUB configuration destination.",
+    },
+    PluginOption {
+        name: "initrd_dst_img",
+        default_value: "",
+        hint: "Initrd overlay filename installed directly below /boot.",
+    },
+    PluginOption {
+        name: "initrd_add_img",
+        default_value: "",
+        hint: "Existing initrd overlay image to install.",
+    },
+    PluginOption {
+        name: "initrd_add_dir",
+        default_value: "",
+        hint: "Owned profile or temporary directory packed as an initrd overlay.",
+    },
+    PluginOption {
+        name: "initrd_remove_dir",
+        default_value: "false",
+        hint: "Remove the temporary source directory after creating the overlay.",
     },
 ];
 
@@ -628,6 +701,18 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: SCHEDULER_OPTIONS,
     },
     PluginDescriptor {
+        name: "eeepc_she",
+        documentation:
+            "Dynamically controls the ASUS EeePC Super Hybrid Engine from aggregate CPU load.",
+        options: EEEPC_SHE_OPTIONS,
+    },
+    PluginDescriptor {
+        name: "bootloader",
+        documentation:
+            "Manages TuneD kernel command-line fragments through grubenv and BLS integration.",
+        options: BOOTLOADER_OPTIONS,
+    },
+    PluginDescriptor {
         name: "script",
         documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
         options: SCRIPT_OPTIONS,
@@ -741,6 +826,8 @@ mod tests {
             "irqbalance",
             "rtentsk",
             "scheduler",
+            "eeepc_she",
+            "bootloader",
             "script",
             "gpu",
             "storage",

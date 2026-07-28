@@ -1,8 +1,10 @@
 pub mod acpi;
 pub mod audio;
 pub mod battery;
+pub mod bootloader;
 pub mod cpu;
 pub mod disk;
+pub mod eeepc_she;
 pub mod generic_sysfs;
 pub mod gpu;
 pub mod hermes;
@@ -75,6 +77,8 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "irqbalance" => irqbalance::apply_options(rollback, &unit.options),
         "rtentsk" => rtentsk::apply(),
         "scheduler" => scheduler::apply_options(rollback, &unit.options),
+        "eeepc_she" => eeepc_she::apply(&unit.options),
+        "bootloader" => bootloader::apply_options(rollback, &unit.options),
         "script" => {
             if let Some(scripts) = option_value(&unit.options, "script") {
                 script::apply_scripts(rollback, scripts)?;
@@ -94,6 +98,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
 }
 
 pub fn cleanup_runtime_resources() {
+    eeepc_she::cleanup();
     scheduler::cleanup();
     rtentsk::cleanup();
 }
