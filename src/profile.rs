@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use configparser::ini::Ini;
@@ -400,7 +401,10 @@ fn load_profile_layers(
 fn read_includes(path: &Path) -> Result<Vec<String>> {
     let ini = read_ini(path)?;
     let profile_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let include = section_value(&ini, profile_dir, "main", "include").unwrap_or_default();
+    let include = section_value(&ini, profile_dir, "main", "include")
+        .map(|value| expand_include_functions(&value))
+        .transpose()?
+        .unwrap_or_default();
 
     Ok(include
         .split([',', ';'])
@@ -453,8 +457,14 @@ pub fn load_profile(path: &Path, name: &str) -> Result<Profile> {
 }
 
 fn read_ini(path: &Path) -> Result<Ini> {
+    const ESCAPED_OPEN: &str = "\u{1d}TUNED_ESCAPED_OPEN_BRACKET\u{1d}";
+    const ESCAPED_CLOSE: &str = "\u{1d}TUNED_ESCAPED_CLOSE_BRACKET\u{1d}";
     let mut ini = Ini::new();
-    ini.load(path.to_str().unwrap_or_default())
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?
+        .replace("\\[", ESCAPED_OPEN)
+        .replace("\\]", ESCAPED_CLOSE);
+    ini.read(content)
         .map_err(|error| anyhow::anyhow!("Failed to parse {}: {error}", path.display()))?;
     Ok(ini)
 }
@@ -539,9 +549,49 @@ fn expand_profile_dir(value: &str, profile_dir: &Path) -> String {
     const PLACEHOLDER: &str = "\u{1f}TUNED_PROFILE_DIR\u{1f}";
 
     value
+        .replace("\u{1d}TUNED_ESCAPED_OPEN_BRACKET\u{1d}", "\\[")
+        .replace("\u{1d}TUNED_ESCAPED_CLOSE_BRACKET\u{1d}", "\\]")
         .replace(ESCAPED_MARKER, PLACEHOLDER)
         .replace(MARKER, &profile_dir.to_string_lossy())
         .replace(PLACEHOLDER, ESCAPED_MARKER)
+}
+
+fn expand_include_functions(value: &str) -> Result<String> {
+    let mut output = value.to_string();
+    for _ in 0..32 {
+        let Some(start) = output.find("${f:virt_check:") else {
+            return Ok(output);
+        };
+        let Some(relative_end) = output[start..].find('}') else {
+            bail!("Unterminated virt_check include function");
+        };
+        let end = start + relative_end;
+        let invocation = &output[start + "${f:".len()..end];
+        let mut fields = invocation.splitn(3, ':');
+        if fields.next() != Some("virt_check") {
+            bail!("Invalid include function '{invocation}'");
+        }
+        let virtual_profile = fields
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("virt_check requires two profile arguments"))?
+            .to_string();
+        let bare_profile = fields
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("virt_check requires two profile arguments"))?
+            .to_string();
+        let virtualized = Command::new("virt-what")
+            .output()
+            .is_ok_and(|result| result.status.success() && !result.stdout.is_empty());
+        output.replace_range(
+            start..=end,
+            if virtualized {
+                &virtual_profile
+            } else {
+                &bare_profile
+            },
+        );
+    }
+    bail!("Include function expansion exceeded its recursion limit")
 }
 
 fn projection_is_safe(unit: &ProfileUnit) -> bool {

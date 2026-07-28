@@ -46,6 +46,11 @@ const CPU_OPTIONS: &[PluginOption] = &[
         hint: "CPU frequency boost or Intel turbo switch.",
     },
     PluginOption {
+        name: "no_turbo",
+        default_value: "",
+        hint: "Legacy inverse switch for Intel P-state turbo boost.",
+    },
+    PluginOption {
         name: "force_latency",
         default_value: "",
         hint: "Persistent CPU idle-latency constraint.",
@@ -111,6 +116,26 @@ const DISK_OPTIONS: &[PluginOption] = &[
         default_value: "",
         hint: "Read-ahead size, including TuneD comparison modifiers.",
     },
+    PluginOption {
+        name: "readahead_multiply",
+        default_value: "",
+        hint: "Multiplier applied to the existing device read-ahead value.",
+    },
+    PluginOption {
+        name: "scheduler_quantum",
+        default_value: "",
+        hint: "CFQ scheduler request quantum for matching block devices.",
+    },
+    PluginOption {
+        name: "apm",
+        default_value: "",
+        hint: "ATA Advanced Power Management level applied with hdparm.",
+    },
+    PluginOption {
+        name: "spindown",
+        default_value: "",
+        hint: "ATA standby timeout applied with hdparm.",
+    },
 ];
 
 const ACPI_OPTIONS: &[PluginOption] = &[PluginOption {
@@ -120,6 +145,16 @@ const ACPI_OPTIONS: &[PluginOption] = &[PluginOption {
 }];
 
 const NETWORK_OPTIONS: &[PluginOption] = &[
+    PluginOption {
+        name: "channels",
+        default_value: "",
+        hint: "Per-interface RX, TX, other, or combined channel counts managed with ethtool.",
+    },
+    PluginOption {
+        name: "nf_conntrack_hashsize",
+        default_value: "",
+        hint: "Netfilter connection-tracking hash table size.",
+    },
     PluginOption {
         name: "tcp_congestion_control",
         default_value: "",
@@ -507,6 +542,12 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: &[],
     },
     PluginDescriptor {
+        name: "sysfs",
+        documentation:
+            "Applies arbitrary sysfs controls with wildcard expansion and TuneD modifiers.",
+        options: &[],
+    },
+    PluginDescriptor {
         name: "vm",
         documentation: "Controls virtual-memory writeback and transparent huge-page policy.",
         options: VM_OPTIONS,
@@ -680,6 +721,7 @@ mod tests {
             "modules",
             "cpu",
             "sysctl",
+            "sysfs",
             "vm",
             "disk",
             "acpi",

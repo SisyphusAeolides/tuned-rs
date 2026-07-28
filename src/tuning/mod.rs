@@ -64,7 +64,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             &unit.options,
         ),
         "acpi" => apply_acpi_unit(rollback, unit),
-        "net" | "network" => network::apply_tcp_options(rollback, &unit.options),
+        "net" | "network" => network::apply_options(rollback, &unit.devices, &unit.options),
         "audio" => audio::apply_options(rollback, &unit.options),
         "video" => video::apply_options(rollback, &unit.options),
         "scsi_host" => scsi_host::apply_options(rollback, &unit.devices, &unit.options),
@@ -106,6 +106,7 @@ fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             "min_perf_pct" => cpu::apply_min_perf_pct(rollback, value)?,
             "max_perf_pct" => cpu::apply_max_perf_pct(rollback, value)?,
             "boost" => cpu::apply_boost(rollback, value)?,
+            "no_turbo" => cpu::apply_no_turbo(rollback, value)?,
             "force_latency" => cpu::apply_force_latency(rollback, value)?,
             "pm_qos_resume_latency_us" => cpu::apply_pm_qos_resume_latency_us(rollback, value)?,
             "sampling_down_factor" => cpu::apply_sampling_down_factor(rollback, value)?,
@@ -147,7 +148,7 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore"
+            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network"
         )
     {
         bail!(

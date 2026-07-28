@@ -132,6 +132,11 @@ pub fn apply_boost(rollback: &Rollback, raw: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn apply_no_turbo(rollback: &Rollback, raw: &str) -> Result<()> {
+    let no_turbo = tuned_bool(raw).with_context(|| format!("Invalid no_turbo value '{raw}'"))?;
+    apply_boost(rollback, if no_turbo { "0" } else { "1" })
+}
+
 pub fn apply_pm_qos_resume_latency_us(rollback: &Rollback, raw: &str) -> Result<()> {
     validate_scalar(raw)?;
     let mut updated = 0usize;

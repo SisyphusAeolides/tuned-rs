@@ -101,7 +101,7 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
     if unit.devices != "*"
         && !matches!(
             unit.plugin_type.as_str(),
-            "disk" | "scsi_host" | "usb" | "uncore"
+            "disk" | "scsi_host" | "usb" | "uncore" | "net" | "network"
         )
     {
         issue(
@@ -315,6 +315,7 @@ fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {
                 check_paths(report, "cpu", option, expected, targets, ValueMode::Exact);
             }
             "boost" => verify_boost(report, option, expected, &policies),
+            "no_turbo" => verify_no_turbo(report, option, expected),
             "pm_qos_resume_latency_us" => check_paths(
                 report,
                 "cpu",
@@ -401,6 +402,33 @@ fn verify_boost(
         option,
         if expected { "0" } else { "1" },
         no_turbo.is_file().then_some(no_turbo).into_iter().collect(),
+        ValueMode::Exact,
+    );
+}
+
+fn verify_no_turbo(report: &mut VerificationReport, option: &str, expected: &str) {
+    let Some(expected) = parse_bool(expected) else {
+        issue(
+            report,
+            VerificationIssueKind::Unsupported,
+            "cpu",
+            option,
+            "no_turbo",
+            expected,
+            None,
+            "invalid boolean no_turbo value",
+        );
+        return;
+    };
+    check_paths(
+        report,
+        "cpu",
+        option,
+        if expected { "1" } else { "0" },
+        [rooted("/sys/devices/system/cpu/intel_pstate/no_turbo")]
+            .into_iter()
+            .filter(|path| path.is_file())
+            .collect(),
         ValueMode::Exact,
     );
 }
@@ -518,6 +546,7 @@ fn verify_disk(unit: &ProfileUnit, report: &mut VerificationReport) {
                     ValueMode::Assignment,
                     normalize_readahead(expected),
                 ),
+                "scheduler_quantum" => ("iosched/quantum", ValueMode::Exact, expected.clone()),
                 _ => continue,
             };
             check_file(
@@ -547,6 +576,32 @@ fn verify_acpi(unit: &ProfileUnit, report: &mut VerificationReport) {
 
 fn verify_network(unit: &ProfileUnit, report: &mut VerificationReport) {
     for (option, expected) in &unit.options {
+        if option == "channels" {
+            if !tuning::network::verify_channels(&unit.devices, expected, true) {
+                issue(
+                    report,
+                    VerificationIssueKind::Mismatch,
+                    "network",
+                    option,
+                    &unit.name,
+                    expected,
+                    None,
+                    "network channel settings do not match",
+                );
+            }
+            continue;
+        }
+        if option == "nf_conntrack_hashsize" {
+            check_file(
+                report,
+                "network",
+                option,
+                rooted("/sys/module/nf_conntrack/parameters/hashsize"),
+                expected,
+                ValueMode::Assignment,
+            );
+            continue;
+        }
         let relative = match option.as_str() {
             "tcp_congestion_control" => "ipv4/tcp_congestion_control",
             "tcp_window_scaling" => "ipv4/tcp_window_scaling",

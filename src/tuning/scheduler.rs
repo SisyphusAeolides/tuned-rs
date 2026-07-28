@@ -75,16 +75,30 @@ pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
 }
 
 fn resolve_knob(namespace: &str, knob: &str) -> Option<PathBuf> {
-    let proc = config::resolve_path(&format!("/proc/sys/kernel/{namespace}_{knob}"));
+    resolve_knob_under(
+        namespace,
+        knob,
+        &config::resolve_path("/proc/sys/kernel"),
+        &config::resolve_path("/sys/kernel/debug"),
+    )
+}
+
+fn resolve_knob_under(
+    namespace: &str,
+    knob: &str,
+    proc_root: &Path,
+    debug_root: &Path,
+) -> Option<PathBuf> {
+    let proc = proc_root.join(format!("{namespace}_{knob}"));
     if proc.is_file() {
         return Some(proc);
     }
-    let debug = config::resolve_path(&format!("/sys/kernel/debug/{namespace}/{knob}"));
+    let debug = debug_root.join(namespace).join(knob);
     if debug.is_file() {
         return Some(debug);
     }
     if namespace == "sched" && knob == "min_granularity_ns" {
-        let renamed = config::resolve_path("/sys/kernel/debug/sched/base_slice_ns");
+        let renamed = debug_root.join("sched/base_slice_ns");
         if renamed.is_file() {
             return Some(renamed);
         }
@@ -128,16 +142,18 @@ mod tests {
     #[test]
     fn follows_kernel_66_scheduler_knob_rename() {
         let root = TempDir::new().unwrap();
-        let previous = std::env::var_os("TUNED_RS_ROOT");
-        std::env::set_var("TUNED_RS_ROOT", root.path());
         let path = root.path().join("sys/kernel/debug/sched/base_slice_ns");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "3000000").unwrap();
-        assert_eq!(resolve_knob("sched", "min_granularity_ns"), Some(path));
-        match previous {
-            Some(value) => std::env::set_var("TUNED_RS_ROOT", value),
-            None => std::env::remove_var("TUNED_RS_ROOT"),
-        }
+        assert_eq!(
+            resolve_knob_under(
+                "sched",
+                "min_granularity_ns",
+                &root.path().join("proc/sys/kernel"),
+                &root.path().join("sys/kernel/debug"),
+            ),
+            Some(path)
+        );
     }
 
     #[test]

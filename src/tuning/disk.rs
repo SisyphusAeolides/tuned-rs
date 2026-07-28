@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use tracing::{info, warn};
@@ -40,10 +41,132 @@ fn apply_device_option(
     match option {
         "elevator" => apply_elevator(rollback, device, raw_value),
         "readahead" => apply_readahead(rollback, device, raw_value),
+        "readahead_multiply" => apply_readahead_multiply(rollback, device, raw_value),
+        "scheduler_quantum" => apply_scheduler_quantum(rollback, device, raw_value),
+        "apm" => apply_hdparm(rollback, device, "apm", "-B", raw_value),
+        "spindown" => apply_hdparm(rollback, device, "spindown", "-S", raw_value),
         other => {
             warn!("Unsupported disk option '{other}' for device '{device}'");
             Ok(())
         }
+    }
+}
+
+fn apply_readahead_multiply(rollback: &Rollback, device: &str, raw_value: &str) -> Result<()> {
+    let multiplier = raw_value
+        .trim()
+        .parse::<f64>()
+        .with_context(|| format!("Invalid readahead multiplier '{raw_value}'"))?;
+    if !multiplier.is_finite() || multiplier < 0.0 {
+        bail!("readahead_multiply must be a finite non-negative number");
+    }
+    let path = allowed_sysfs_path(&device_option_path(device, "read_ahead_kb")?)?;
+    if !path.is_file() {
+        return Ok(());
+    }
+    let current = read_trimmed(&path)?;
+    let current_value = current
+        .parse::<f64>()
+        .with_context(|| format!("Invalid current readahead value for '{device}'"))?;
+    let resolved = (current_value * multiplier).trunc();
+    if resolved > u64::MAX as f64 {
+        bail!("readahead multiplier overflows the kernel control");
+    }
+    rollback.record_original(&rollback_key("sysfs", &path.to_string_lossy()), &current)?;
+    write_sysfs_raw(&path, &(resolved as u64).to_string())
+}
+
+fn apply_scheduler_quantum(rollback: &Rollback, device: &str, raw_value: &str) -> Result<()> {
+    let value = raw_value
+        .trim()
+        .parse::<u64>()
+        .with_context(|| format!("Invalid scheduler quantum '{raw_value}'"))?;
+    let path = allowed_sysfs_path(&device_option_path(device, "iosched/quantum")?)?;
+    if !path.is_file() {
+        return Ok(());
+    }
+    let current = read_trimmed(&path)?;
+    rollback.record_original(&rollback_key("sysfs", &path.to_string_lossy()), &current)?;
+    write_sysfs_raw(&path, &value.to_string())
+}
+
+fn apply_hdparm(
+    rollback: &Rollback,
+    device: &str,
+    kind: &str,
+    flag: &str,
+    raw_value: &str,
+) -> Result<()> {
+    let value = raw_value
+        .trim()
+        .parse::<u8>()
+        .with_context(|| format!("Invalid disk {kind} value '{raw_value}'"))?;
+    let original = if kind == "apm" {
+        match query_apm(device)? {
+            Some(value) => value,
+            None => return Ok(()),
+        }
+    } else {
+        253
+    };
+    rollback.record_original(
+        &rollback_key(&format!("hdparm-{kind}"), device),
+        &original.to_string(),
+    )?;
+    set_hdparm(device, flag, value)
+}
+
+fn query_apm(device: &str) -> Result<Option<u8>> {
+    let output = match Command::new("hdparm")
+        .args(["-B", &format!("/dev/{device}")])
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("Failed to execute hdparm"),
+    };
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.split('=').nth(1).and_then(|tail| {
+        tail.split(|character: char| !character.is_ascii_digit())
+            .find(|part| !part.is_empty())
+            .and_then(|part| part.parse::<u8>().ok())
+    }))
+}
+
+fn set_hdparm(device: &str, flag: &str, value: u8) -> Result<()> {
+    if !is_tunable_block_device(device)
+        || !device
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        bail!("Invalid block device name '{device}'");
+    }
+    let status = match Command::new("hdparm")
+        .args([flag, &value.to_string(), &format!("/dev/{device}")])
+        .status()
+    {
+        Ok(status) => status,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).context("Failed to execute hdparm"),
+    };
+    if status.success() {
+        Ok(())
+    } else {
+        bail!("hdparm {flag} failed for /dev/{device} with {status}")
+    }
+}
+
+pub fn restore_hdparm(kind: &str, device: &str, original: &str) -> Result<()> {
+    let value = original
+        .parse::<u8>()
+        .with_context(|| format!("Invalid saved hdparm value '{original}'"))?;
+    match kind {
+        "apm" => set_hdparm(device, "-B", value),
+        "spindown" => set_hdparm(device, "-S", value),
+        _ => bail!("Unknown hdparm rollback kind '{kind}'"),
     }
 }
 
