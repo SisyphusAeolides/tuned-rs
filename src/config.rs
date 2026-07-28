@@ -38,15 +38,19 @@ pub fn default_profile_dirs() -> Vec<PathBuf> {
 pub fn profile_dirs_from_env() -> Vec<PathBuf> {
     std::env::var("TUNED_RS_PROFILE_DIRS")
         .ok()
-        .map(|value| {
-            value
-                .split([',', ';'])
-                .filter(|part| !part.is_empty())
-                .map(PathBuf::from)
-                .collect()
-        })
+        .or_else(|| global_config_value("profile_dirs"))
+        .map(|value| split_path_list(&value))
         .filter(|dirs: &Vec<PathBuf>| !dirs.is_empty())
         .unwrap_or_else(default_profile_dirs)
+}
+
+fn split_path_list(value: &str) -> Vec<PathBuf> {
+    value
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(PathBuf::from)
+        .collect()
 }
 
 pub fn resolve_path(base: &str) -> PathBuf {
@@ -111,4 +115,33 @@ fn tuned_bool(raw: &str) -> bool {
         raw.trim().to_ascii_lowercase().as_str(),
         "1" | "y" | "yes" | "true" | "on"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn global_profile_directories_are_honored_without_environment_override() {
+        let _guard = test_env_lock();
+        let root = TempDir::new().unwrap();
+        let config = root.path().join("etc/tuned");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(
+            config.join("tuned-main.conf"),
+            "[main]\nprofile_dirs = /opt/tuned, /etc/custom-tuned\n",
+        )
+        .unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        std::env::remove_var("TUNED_RS_PROFILE_DIRS");
+        assert_eq!(
+            profile_dirs_from_env(),
+            [
+                PathBuf::from("/opt/tuned"),
+                PathBuf::from("/etc/custom-tuned")
+            ]
+        );
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
 }
