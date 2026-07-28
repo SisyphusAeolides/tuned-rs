@@ -264,6 +264,10 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
     match kind {
         "sysctl" => crate::tuning::sysctl::write_raw(target, original),
         "vm" => crate::tuning::vm::write_raw(target, original),
+        "sysfs" if !Path::new(target).exists() => {
+            info!("Skipping rollback for disappeared sysfs device {target}");
+            Ok(())
+        }
         "sysfs" => crate::tuning::sysfs::write_raw(Path::new(target), original),
         "file" => {
             restore_managed_file(Path::new(target), original, managed_files)?;
@@ -454,6 +458,21 @@ mod tests {
         let rollback = Rollback::load_from_path(path).unwrap();
         let state = rollback.state.lock().unwrap();
         assert_eq!(state.order, vec!["sysfs:a", "sysfs:b"]);
+    }
+
+    #[test]
+    fn discards_rollback_for_disappeared_sysfs_device() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("rollback.json");
+        let rollback = Rollback::load_from_path(path.clone()).unwrap();
+        let missing = dir.path().join("sys/devices/removed/control");
+
+        rollback
+            .record_original(&rollback_key("sysfs", &missing.to_string_lossy()), "1")
+            .unwrap();
+        rollback.restore_all().unwrap();
+
+        assert!(!path.exists());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.3
+Version:        0.2.4
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -46,13 +46,13 @@ make install-bin DESTDIR=%{buildroot} BINDIR=%{_bindir} SBINDIR=%{_sbindir}
 make install-data DESTDIR=%{buildroot} DOCDIR=%{_docdir}/%{name}
 
 %post
-%systemd_post tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
+%systemd_post tuned.service tuned-ppd.service
 
 %preun
-%systemd_preun tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
+%systemd_preun tuned.service tuned-ppd.service
 
 %postun
-%systemd_postun_with_restart tuned.service tuned-rs.service tuned-ppd.service tuned-rs-ppd.service
+%systemd_postun_with_restart tuned.service tuned-ppd.service
 if [ "$1" -eq 0 ]; then
   rm -f %{_sysconfdir}/grub.d/00_tuned || :
 fi
@@ -110,6 +110,10 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.4-1
+- Tolerate rollback of devices removed since the profile was applied
+- Avoid duplicate systemd alias restart jobs during package upgrades
+
 * Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.3-1
 - Honor merged-usr binary directories on Fedora
 
