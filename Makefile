@@ -85,10 +85,11 @@ install: build install-bin install-data
 
 install-bin:
 	install -D -m 0755 target/release/tuned-rs $(DESTDIR)$(BINDIR)/tuned-rs
-	install -D -m 0755 target/release/tuned-rs $(DESTDIR)$(SBINDIR)/tuned
+	install -d $(DESTDIR)$(SBINDIR)
+	ln -sfn ../bin/tuned-rs $(DESTDIR)$(SBINDIR)/tuned
 	install -D -m 0755 target/release/tuned-adm $(DESTDIR)$(SBINDIR)/tuned-adm
 	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(BINDIR)/tuned-rs-ppd
-	install -D -m 0755 target/release/tuned-rs-ppd $(DESTDIR)$(SBINDIR)/tuned-ppd
+	ln -sfn ../bin/tuned-rs-ppd $(DESTDIR)$(SBINDIR)/tuned-ppd
 	install -D -m 0755 target/release/tuned-rs-gui $(DESTDIR)$(BINDIR)/tuned-rs-gui
 
 install-data: install-config install-profiles
