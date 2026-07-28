@@ -103,8 +103,13 @@ fn apply_isolation(options: &PluginOptions) -> Result<()> {
         bail!("isolated_cores cannot contain every online CPU");
     }
     let desired = affinity_mask(&housekeeping)?;
+    let process_whitelist = regex_set(option_value(options, "ps_whitelist"))?;
     let process_blacklist = regex_set(option_value(options, "ps_blacklist"))?;
     let cgroup_blacklist = regex_set(option_value(options, "cgroup_ps_blacklist"))?;
+    let process_kthreads = option_value(options, "kthread_process")
+        .map(parse_bool)
+        .transpose()?
+        .unwrap_or(true);
     let mut state = RuntimeState::default();
     let own_pid = std::process::id() as libc::pid_t;
     for pid in process_ids()? {
@@ -114,6 +119,15 @@ fn apply_isolation(options: &PluginOptions) -> Result<()> {
         let Some(identity) = process_identity(pid) else {
             continue;
         };
+        if process_whitelist
+            .as_ref()
+            .is_some_and(|set| !set.is_match(&identity))
+        {
+            continue;
+        }
+        if !process_kthreads && identity.starts_with('[') && identity.ends_with(']') {
+            continue;
+        }
         if process_blacklist
             .as_ref()
             .is_some_and(|set| set.is_match(&identity))
@@ -260,9 +274,45 @@ fn regex_set(raw: Option<&str>) -> Result<Option<RegexSet>> {
     let Some(raw) = raw.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    Ok(Some(RegexSet::new(
-        raw.split(';').filter(|pattern| !pattern.is_empty()),
-    )?))
+    Ok(Some(RegexSet::new(split_regex_list(raw))?))
+}
+
+fn split_regex_list(raw: &str) -> Vec<String> {
+    let mut patterns = Vec::new();
+    let mut current = String::new();
+    let mut escaped = false;
+    for character in raw.chars() {
+        if escaped {
+            if character != ';' {
+                current.push('\\');
+            }
+            current.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == ';' {
+            if !current.is_empty() {
+                patterns.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(character);
+        }
+    }
+    if escaped {
+        current.push('\\');
+    }
+    if !current.is_empty() {
+        patterns.push(current);
+    }
+    patterns
+}
+
+fn parse_bool(raw: &str) -> Result<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "y" | "yes" | "t" | "true" | "on" => Ok(true),
+        "0" | "n" | "no" | "f" | "false" | "off" => Ok(false),
+        _ => bail!("Invalid scheduler boolean value '{raw}'"),
+    }
 }
 
 fn vanished(error: &anyhow::Error) -> bool {
@@ -392,5 +442,10 @@ mod tests {
         assert!(set.is_match("[ksoftirqd/0]"));
         assert!(set.is_match("/usr/bin/qemu-kvm -name guest"));
         assert!(!set.is_match("postgres"));
+        let escaped = regex_set(Some(r"literal\;semicolon;postgres"))
+            .unwrap()
+            .unwrap();
+        assert!(escaped.is_match("literal;semicolon"));
+        assert!(escaped.is_match("postgres"));
     }
 }

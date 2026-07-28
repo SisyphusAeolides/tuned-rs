@@ -253,6 +253,11 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
         );
     };
     for (option, _) in &unit.options {
+        if unit.plugin_type == "scheduler"
+            && (option.starts_with("group.") || option.starts_with("cgroup."))
+        {
+            continue;
+        }
         if !descriptor
             .options
             .iter()

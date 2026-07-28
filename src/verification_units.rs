@@ -156,6 +156,11 @@ fn verify_contract(unit: &ProfileUnit, report: &mut VerificationReport) -> bool 
     };
     if !matches!(unit.plugin_type.as_str(), "modules" | "sysctl") {
         for (option, expected) in &unit.options {
+            if unit.plugin_type == "scheduler"
+                && (option.starts_with("group.") || option.starts_with("cgroup."))
+            {
+                continue;
+            }
             if !descriptor
                 .options
                 .iter()

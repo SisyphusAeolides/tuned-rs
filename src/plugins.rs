@@ -376,14 +376,64 @@ const SCHEDULER_OPTIONS: &[PluginOption] = &[
         hint: "CPUs isolated from general process affinity.",
     },
     PluginOption {
+        name: "cgroup_mount_point",
+        default_value: "/sys/fs/cgroup/cpuset",
+        hint: "Root of the scheduler cpuset hierarchy.",
+    },
+    PluginOption {
+        name: "cgroup_mount_point_init",
+        default_value: "false",
+        hint: "Initialize and mount the scheduler cpuset hierarchy.",
+    },
+    PluginOption {
+        name: "cgroup_groups_init",
+        default_value: "true",
+        hint: "Create configured scheduler cpuset groups.",
+    },
+    PluginOption {
+        name: "cgroup_for_isolated_cores",
+        default_value: "",
+        hint: "Cpuset group receiving tasks moved away from isolated CPUs.",
+    },
+    PluginOption {
         name: "ps_blacklist",
         default_value: "",
         hint: "Semicolon-separated process regular expressions excluded from affinity changes.",
     },
     PluginOption {
+        name: "ps_whitelist",
+        default_value: "",
+        hint: "Semicolon-separated process expressions eligible for scheduler tuning.",
+    },
+    PluginOption {
         name: "cgroup_ps_blacklist",
         default_value: "",
         hint: "Cgroup regular expression excluded from process affinity changes.",
+    },
+    PluginOption {
+        name: "kthread_process",
+        default_value: "true",
+        hint: "Include kernel threads in scheduler processing.",
+    },
+    PluginOption {
+        name: "irq_process",
+        default_value: "true",
+        hint: "Move IRQ affinities away from isolated CPUs.",
+    },
+    PluginOption {
+        name: "default_irq_smp_affinity",
+        default_value: "calc",
+        hint: "Calculated, ignored, or explicit default IRQ CPU affinity.",
+    },
+    PluginOption {
+        name: "perf_mmap_pages",
+        default_value: "",
+        hint: "Perf event ring-buffer page count rounded to a power of two.",
+    },
+    PluginOption {
+        name: "perf_process_fork",
+        default_value: "false",
+        hint: "Process perf fork events in the scheduler monitor.",
     },
     PluginOption {
         name: "runtime",
