@@ -297,6 +297,10 @@ const IRQBALANCE_OPTIONS: &[PluginOption] = &[PluginOption {
 }];
 
 const SCHEDULER_OPTIONS: &[PluginOption] = &[
+    PluginOption { name: "isolated_cores", default_value: "", hint: "CPUs isolated from general process affinity." },
+    PluginOption { name: "ps_blacklist", default_value: "", hint: "Semicolon-separated process regular expressions excluded from affinity changes." },
+    PluginOption { name: "cgroup_ps_blacklist", default_value: "", hint: "Cgroup regular expression excluded from process affinity changes." },
+    PluginOption { name: "runtime", default_value: "1", hint: "Runtime scheduler monitoring switch." },
     PluginOption {
         name: "sched_min_granularity_ns",
         default_value: "",

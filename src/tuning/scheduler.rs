@@ -1,10 +1,14 @@
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{bail, Result};
+use regex::RegexSet;
 
 use crate::config;
 use crate::profile::PluginOptions;
 use crate::rollback::Rollback;
+use crate::profile_units::option_value;
 use crate::tuning::{generic_sysfs, sysctl};
 
 const KNOBS: &[(&str, &str, &str)] = &[
@@ -41,7 +45,21 @@ const KNOBS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+#[derive(Default)]
+struct RuntimeState {
+    processes: Vec<ProcessSnapshot>,
+}
+
+struct ProcessSnapshot {
+    pid: libc::pid_t,
+    identity: String,
+    affinity: Vec<u8>,
+}
+
+static RUNTIME: OnceLock<Mutex<Option<RuntimeState>>> = OnceLock::new();
+
 pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()> {
+    apply_isolation(options)?;
     for (name, raw) in options {
         let Some((_, namespace, knob)) = KNOBS.iter().find(|(option, _, _)| option == name) else {
             continue;
@@ -57,6 +75,203 @@ pub fn apply_options(rollback: &Rollback, options: &PluginOptions) -> Result<()>
         }
     }
     Ok(())
+}
+
+pub fn cleanup() {
+    let Some(state) = runtime_slot().lock().unwrap().take() else {
+        return;
+    };
+    for snapshot in state.processes.into_iter().rev() {
+        if process_identity(snapshot.pid).as_deref() == Some(snapshot.identity.as_str()) {
+            let _ = set_affinity(snapshot.pid, &snapshot.affinity);
+        }
+    }
+}
+
+fn apply_isolation(options: &PluginOptions) -> Result<()> {
+    let Some(isolated) = option_value(options, "isolated_cores") else {
+        return Ok(());
+    };
+    cleanup();
+    let online = read_cpu_list(&config::resolve_path("/sys/devices/system/cpu/online"))?;
+    let isolated = parse_cpu_list(isolated)?;
+    let housekeeping = online
+        .into_iter()
+        .filter(|cpu| isolated.binary_search(cpu).is_err())
+        .collect::<Vec<_>>();
+    if housekeeping.is_empty() {
+        bail!("isolated_cores cannot contain every online CPU");
+    }
+    let desired = affinity_mask(&housekeeping)?;
+    let process_blacklist = regex_set(option_value(options, "ps_blacklist"))?;
+    let cgroup_blacklist = regex_set(option_value(options, "cgroup_ps_blacklist"))?;
+    let mut state = RuntimeState::default();
+    let own_pid = std::process::id() as libc::pid_t;
+    for pid in process_ids()? {
+        if pid == own_pid {
+            continue;
+        }
+        let Some(identity) = process_identity(pid) else {
+            continue;
+        };
+        if process_blacklist.as_ref().is_some_and(|set| set.is_match(&identity)) {
+            continue;
+        }
+        if cgroup_blacklist.as_ref().is_some_and(|set| {
+            fs::read_to_string(config::resolve_path(&format!("/proc/{pid}/cgroup")))
+                .is_ok_and(|cgroup| set.is_match(&cgroup))
+        }) {
+            continue;
+        }
+        let original = match get_affinity(pid) {
+            Ok(affinity) => affinity,
+            Err(error) if vanished(&error) => continue,
+            Err(error) => {
+                restore_processes(&state);
+                return Err(error);
+            }
+        };
+        if original == desired {
+            continue;
+        }
+        if let Err(error) = set_affinity(pid, &desired) {
+            if vanished(&error) {
+                continue;
+            }
+            restore_processes(&state);
+            return Err(error);
+        }
+        state.processes.push(ProcessSnapshot {
+            pid,
+            identity,
+            affinity: original,
+        });
+    }
+    *runtime_slot().lock().unwrap() = Some(state);
+    Ok(())
+}
+
+fn restore_processes(state: &RuntimeState) {
+    for snapshot in state.processes.iter().rev() {
+        if process_identity(snapshot.pid).as_deref() == Some(snapshot.identity.as_str()) {
+            let _ = set_affinity(snapshot.pid, &snapshot.affinity);
+        }
+    }
+}
+
+fn runtime_slot() -> &'static Mutex<Option<RuntimeState>> {
+    RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
+fn process_ids() -> Result<Vec<libc::pid_t>> {
+    let mut pids = fs::read_dir(config::resolve_path("/proc"))?
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_string_lossy().parse().ok())
+        .collect::<Vec<_>>();
+    pids.sort_unstable();
+    Ok(pids)
+}
+
+fn process_identity(pid: libc::pid_t) -> Option<String> {
+    let root = config::resolve_path(&format!("/proc/{pid}"));
+    let cmdline = fs::read(root.join("cmdline")).ok()?;
+    if !cmdline.is_empty() {
+        return Some(
+            String::from_utf8_lossy(&cmdline)
+                .replace('\0', " ")
+                .trim()
+                .to_string(),
+        );
+    }
+    fs::read_to_string(root.join("comm"))
+        .ok()
+        .map(|name| format!("[{}]", name.trim()))
+}
+
+fn get_affinity(pid: libc::pid_t) -> Result<Vec<u8>> {
+    let mut mask = vec![0u8; libc::CPU_SETSIZE as usize / 8];
+    // SAFETY: `mask` is writable for the supplied byte length and Linux accepts
+    // the cpuset as an opaque byte array through the cpu_set_t pointer type.
+    let result = unsafe {
+        libc::sched_getaffinity(
+            pid,
+            mask.len(),
+            mask.as_mut_ptr().cast::<libc::cpu_set_t>(),
+        )
+    };
+    if result == 0 {
+        Ok(mask)
+    } else {
+        Err(std::io::Error::last_os_error().into())
+    }
+}
+
+fn set_affinity(pid: libc::pid_t, mask: &[u8]) -> Result<()> {
+    // SAFETY: `mask` remains readable for the supplied byte length during the
+    // syscall and its layout is the Linux affinity bitset ABI.
+    let result = unsafe {
+        libc::sched_setaffinity(pid, mask.len(), mask.as_ptr().cast::<libc::cpu_set_t>())
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().into())
+    }
+}
+
+fn affinity_mask(cpus: &[u32]) -> Result<Vec<u8>> {
+    let mut mask = vec![0u8; libc::CPU_SETSIZE as usize / 8];
+    for &cpu in cpus {
+        let index = cpu as usize;
+        if index >= mask.len() * 8 {
+            bail!("CPU {cpu} exceeds the supported affinity mask size");
+        }
+        mask[index / 8] |= 1 << (index % 8);
+    }
+    Ok(mask)
+}
+
+fn read_cpu_list(path: &Path) -> Result<Vec<u32>> {
+    parse_cpu_list(fs::read_to_string(path)?.trim())
+}
+
+fn parse_cpu_list(raw: &str) -> Result<Vec<u32>> {
+    let mut cpus = Vec::new();
+    for field in raw.split([',', ' ', '\t']).filter(|field| !field.is_empty()) {
+        if let Some((start, end)) = field.split_once('-') {
+            let start = start.parse::<u32>()?;
+            let end = end.parse::<u32>()?;
+            if start > end || end - start > 1_048_576 {
+                bail!("Invalid CPU range '{field}'");
+            }
+            cpus.extend(start..=end);
+        } else {
+            cpus.push(field.parse::<u32>()?);
+        }
+    }
+    cpus.sort_unstable();
+    cpus.dedup();
+    Ok(cpus)
+}
+
+fn regex_set(raw: Option<&str>) -> Result<Option<RegexSet>> {
+    let Some(raw) = raw.filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    Ok(Some(RegexSet::new(
+        raw.split(';').filter(|pattern| !pattern.is_empty()),
+    )?))
+}
+
+fn vanished(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|error| {
+            matches!(
+                error.raw_os_error(),
+                Some(libc::ESRCH) | Some(libc::ENOENT)
+            )
+        })
 }
 
 pub fn verify_options(options: &PluginOptions, ignore_missing: bool) -> bool {
@@ -161,5 +376,24 @@ mod tests {
         assert!(validate_value("1000").is_ok());
         assert!(validate_value("-1").is_err());
         assert!(validate_value("fast").is_err());
+    }
+
+    #[test]
+    fn builds_affinity_masks_from_normalized_cpu_lists() {
+        assert_eq!(parse_cpu_list("3,1-2,2").unwrap(), vec![1, 2, 3]);
+        let mask = affinity_mask(&[0, 2, 9]).unwrap();
+        assert_eq!(mask[0], 0b0000_0101);
+        assert_eq!(mask[1], 0b0000_0010);
+        assert!(parse_cpu_list("4-2").is_err());
+    }
+
+    #[test]
+    fn scheduler_blacklists_are_semicolon_separated_regexes() {
+        let set = regex_set(Some("^\\[ksoftirqd;.*qemu-kvm.*"))
+            .unwrap()
+            .unwrap();
+        assert!(set.is_match("[ksoftirqd/0]"));
+        assert!(set.is_match("/usr/bin/qemu-kvm -name guest"));
+        assert!(!set.is_match("postgres"));
     }
 }

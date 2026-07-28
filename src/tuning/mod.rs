@@ -94,6 +94,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
 }
 
 pub fn cleanup_runtime_resources() {
+    scheduler::cleanup();
     rtentsk::cleanup();
 }
 
