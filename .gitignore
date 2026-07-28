@@ -3,3 +3,8 @@
 /*.src.rpm
 /*.tar.gz
 /*.tar.xz
+
+# Formal compiler output
+/*.mod
+/formal/agda/*.agdai
+/formal/idris2/build/

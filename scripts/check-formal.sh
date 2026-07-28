@@ -13,6 +13,11 @@ build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 missing=0
 
+fortran_module_dir="$build_dir/fortran-modules"
+idris_source_dir="$build_dir/idris2"
+agda_source_dir="$build_dir/agda"
+mkdir -p "$fortran_module_dir" "$idris_source_dir" "$agda_source_dir"
+
 run_fortran_model() {
     source=$1
     output=$2
@@ -23,6 +28,8 @@ run_fortran_model() {
         -Wall \
         -Wextra \
         -Werror \
+        -J "$fortran_module_dir" \
+        -I "$fortran_module_dir" \
         "$source" \
         -o "$build_dir/$output"
     "$build_dir/$output"
@@ -60,8 +67,9 @@ else
 fi
 
 if command -v idris2 >/dev/null 2>&1; then
+    cp formal/idris2/*.idr "$idris_source_dir/"
     (
-        cd formal/idris2
+        cd "$idris_source_dir"
         idris2 --check TunedProfile.idr
         idris2 --check TunedInstances.idr
         idris2 --check TunedVerification.idr
@@ -76,12 +84,13 @@ else
 fi
 
 if command -v agda >/dev/null 2>&1; then
-    agda --safe -i formal/agda formal/agda/TunedRollback.agda
-    agda --safe -i formal/agda formal/agda/TunedInstances.agda
-    agda --safe -i formal/agda formal/agda/TunedVerification.agda
-    agda --safe -i formal/agda formal/agda/TunedUnits.agda
-    agda --safe -i formal/agda formal/agda/TunedRuntime.agda
-    agda --safe -i formal/agda formal/agda/TunedSysfs.agda
+    cp formal/agda/*.agda "$agda_source_dir/"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedRollback.agda"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedInstances.agda"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedVerification.agda"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedUnits.agda"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedRuntime.agda"
+    agda --safe -i "$agda_source_dir" "$agda_source_dir/TunedSysfs.agda"
     echo "Agda rollback, instance, verification, unit, runtime, and sysfs proofs: passed"
 else
     echo "Agda proofs: skipped (agda not found)" >&2
