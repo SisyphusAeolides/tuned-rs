@@ -47,6 +47,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "usb" => verify_usb(&unit, report),
             "systemd" => verify_systemd(&unit, report),
             "uncore" => verify_uncore(&unit, report),
+            "irqbalance" => verify_irqbalance(&unit, report),
             "script" => verify_script(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
@@ -207,6 +208,21 @@ fn verify_uncore(unit: &ProfileUnit, report: &mut VerificationReport) {
             "configured uncore frequency limits",
             None,
             "Intel uncore frequency limits do not match",
+        );
+    }
+}
+
+fn verify_irqbalance(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::irqbalance::verify_options(&unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "irqbalance",
+            "banned_cpus",
+            &unit.name,
+            unit.option("banned_cpus").unwrap_or_default(),
+            None,
+            "irqbalance banned CPU list does not match",
         );
     }
 }

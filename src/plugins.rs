@@ -255,6 +255,12 @@ const UNCORE_OPTIONS: &[PluginOption] = &[
     },
 ];
 
+const IRQBALANCE_OPTIONS: &[PluginOption] = &[PluginOption {
+    name: "banned_cpus",
+    default_value: "",
+    hint: "CPU list excluded from irqbalance IRQ placement.",
+}];
+
 const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
     name: "script",
     default_value: "",
@@ -503,6 +509,11 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: UNCORE_OPTIONS,
     },
     PluginDescriptor {
+        name: "irqbalance",
+        documentation: "Configures CPUs excluded from irqbalance and reloads the running service.",
+        options: IRQBALANCE_OPTIONS,
+    },
+    PluginDescriptor {
         name: "script",
         documentation: "Runs profile-local compatibility scripts for start, verify, and stop.",
         options: SCRIPT_OPTIONS,
@@ -612,6 +623,7 @@ mod tests {
             "usb",
             "systemd",
             "uncore",
+            "irqbalance",
             "script",
             "gpu",
             "storage",

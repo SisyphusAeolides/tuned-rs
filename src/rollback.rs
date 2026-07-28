@@ -203,6 +203,7 @@ fn default_managed_files() -> Vec<PathBuf> {
     vec![
         config::resolve_path("/etc/modprobe.d/tuned.conf"),
         config::resolve_path("/etc/systemd/system.conf.d/00-tuned.conf"),
+        config::resolve_path("/etc/sysconfig/irqbalance"),
     ]
 }
 
@@ -231,7 +232,13 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
         "sysctl" => crate::tuning::sysctl::write_raw(target, original),
         "vm" => crate::tuning::vm::write_raw(target, original),
         "sysfs" => crate::tuning::sysfs::write_raw(Path::new(target), original),
-        "file" => restore_managed_file(Path::new(target), original, managed_files),
+        "file" => {
+            restore_managed_file(Path::new(target), original, managed_files)?;
+            if Path::new(target) == config::resolve_path("/etc/sysconfig/irqbalance") {
+                crate::tuning::irqbalance::try_restart()?;
+            }
+            Ok(())
+        }
         "script" => crate::tuning::script::run_rollback_script(Path::new(target), original),
         _ => bail!("Unknown rollback key type in '{key}'"),
     }

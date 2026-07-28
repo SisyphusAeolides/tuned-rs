@@ -6,6 +6,7 @@ pub mod disk;
 pub mod generic_sysfs;
 pub mod gpu;
 pub mod hermes;
+pub mod irqbalance;
 pub mod modifiers;
 pub mod modules;
 pub mod network;
@@ -69,6 +70,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
         "usb" => usb::apply_options(rollback, &unit.devices, &unit.options),
         "systemd" => systemd::apply_options(rollback, &unit.options),
         "uncore" => uncore::apply_options(rollback, &unit.devices, &unit.options),
+        "irqbalance" => irqbalance::apply_options(rollback, &unit.options),
         "script" => {
             if let Some(scripts) = option_value(&unit.options, "script") {
                 script::apply_scripts(rollback, scripts)?;
