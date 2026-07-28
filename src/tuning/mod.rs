@@ -81,6 +81,7 @@ fn apply_unit_inner(rollback: &Rollback, unit: &ProfileUnit, manage_runtime: boo
             for (key, value) in &unit.options {
                 sysctl::apply_option(rollback, key, value)?;
             }
+            sysctl::reapply_system_configuration(&unit.options)?;
             Ok(())
         }
         "sysfs" => generic_sysfs::apply_options(rollback, &unit.options),
@@ -314,6 +315,12 @@ fn apply_legacy_projection(rollback: &Rollback, profile: &Profile) -> Result<()>
     for (key, value) in &profile.sysctl {
         sysctl::apply_option(rollback, key, value)?;
     }
+    let legacy_sysctl = profile
+        .sysctl
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    sysctl::reapply_system_configuration(&legacy_sysctl)?;
     vm::apply_options(rollback, &vm_option_pairs(&profile.vm))?;
     disk::apply_options(
         rollback,

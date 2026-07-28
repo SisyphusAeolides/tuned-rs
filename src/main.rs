@@ -17,6 +17,8 @@ async fn main() -> Result<()> {
 
     info!("Starting tuned-rs daemon...");
 
+    settle_udev().await;
+
     let profile_dirs: Vec<_> = config::profile_dirs_from_env()
         .into_iter()
         .map(config::resolve_path_buf)
@@ -75,4 +77,21 @@ async fn main() -> Result<()> {
     daemon.stop(config::rollback_on_exit()).await;
     info!("Shutting down tuned-rs...");
     Ok(())
+}
+
+async fn settle_udev() {
+    let timeout = config::startup_udev_settle_wait();
+    if timeout == 0 || std::env::var_os("TUNED_RS_ROOT").is_some() {
+        return;
+    }
+    info!("Waiting up to {timeout} second(s) for udev to settle");
+    match tokio::process::Command::new("udevadm")
+        .args(["settle", "--timeout", &timeout.to_string()])
+        .status()
+        .await
+    {
+        Ok(status) if status.success() => info!("udev settled"),
+        Ok(status) => warn!("udevadm settle exited with {status}"),
+        Err(error) => warn!("Failed to wait for udev: {error}"),
+    }
 }

@@ -62,7 +62,7 @@ where
     selected
 }
 
-fn glob_matches(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_matches(pattern: &str, text: &str) -> bool {
     fn matches_from(
         pattern: &[u8],
         text: &[u8],

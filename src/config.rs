@@ -95,6 +95,31 @@ pub fn dynamic_tuning() -> bool {
     global_config_value("dynamic_tuning").is_some_and(|value| tuned_bool(&value))
 }
 
+pub fn reapply_sysctl() -> bool {
+    global_config_value("reapply_sysctl")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
+pub fn reapply_sysctl_exclusions() -> Vec<String> {
+    global_config_value("reapply_sysctl_exclude")
+        .map(|value| {
+            value
+                .split([',', ';'])
+                .map(str::trim)
+                .filter(|pattern| !pattern.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn startup_udev_settle_wait() -> u64 {
+    global_config_value("startup_udev_settle_wait")
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
+}
+
 pub fn update_interval() -> std::time::Duration {
     let seconds = global_config_value("update_interval")
         .and_then(|value| value.trim().parse::<u64>().ok())
