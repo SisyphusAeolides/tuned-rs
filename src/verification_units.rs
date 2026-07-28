@@ -392,16 +392,20 @@ fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {
                 }
                 check_paths(report, "cpu", option, expected, targets, ValueMode::Exact);
             }
-            "force_latency" => issue(
-                report,
-                VerificationIssueKind::Unsupported,
-                "cpu",
-                option,
-                &unit.name,
-                expected,
-                None,
-                "persistent PM QoS force_latency support is not implemented",
-            ),
+            "force_latency" => {
+                if !tuning::cpu::verify_force_latency(expected) {
+                    issue(
+                        report,
+                        VerificationIssueKind::Mismatch,
+                        "cpu",
+                        option,
+                        &unit.name,
+                        expected,
+                        None,
+                        "persistent PM QoS latency descriptor differs",
+                    );
+                }
+            }
             _ => {}
         }
     }

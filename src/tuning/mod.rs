@@ -107,6 +107,7 @@ pub fn cleanup_runtime_resources() {
     eeepc_she::cleanup();
     scheduler::cleanup();
     rtentsk::cleanup();
+    cpu::cleanup_latency();
 }
 
 fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
@@ -122,12 +123,14 @@ fn apply_cpu_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             "force_latency" => cpu::apply_force_latency(rollback, value)?,
             "pm_qos_resume_latency_us" => cpu::apply_pm_qos_resume_latency_us(rollback, value)?,
             "sampling_down_factor" => cpu::apply_sampling_down_factor(rollback, value)?,
+            "load_threshold" | "latency_low" | "latency_high" => {}
             other => bail!(
                 "Profile unit '{}' uses unsupported CPU option '{other}'",
                 unit.name
             ),
         }
     }
+    cpu::apply_dynamic_latency(&unit.options)?;
     Ok(())
 }
 

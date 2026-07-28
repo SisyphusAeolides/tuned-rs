@@ -16,6 +16,21 @@ pub struct PluginDescriptor {
 
 const CPU_OPTIONS: &[PluginOption] = &[
     PluginOption {
+        name: "load_threshold",
+        default_value: "0.2",
+        hint: "System-load threshold for dynamic PM QoS latency selection.",
+    },
+    PluginOption {
+        name: "latency_low",
+        default_value: "100",
+        hint: "PM QoS latency used above the load threshold.",
+    },
+    PluginOption {
+        name: "latency_high",
+        default_value: "1000",
+        hint: "PM QoS latency used below the load threshold.",
+    },
+    PluginOption {
         name: "governor",
         default_value: "",
         hint: "CPU frequency governor applied to matching processors.",

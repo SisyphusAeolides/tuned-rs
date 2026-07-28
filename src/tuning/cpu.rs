@@ -1,6 +1,11 @@
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use tracing::{debug, error, info, warn};
@@ -11,6 +16,20 @@ use crate::tuning::sysfs::{allowed_sysfs_path, write_raw as write_sysfs_raw};
 
 const CPUFREQ_BASE: &str = "/sys/devices/system/cpu/cpufreq";
 const CPU_BASE: &str = "/sys/devices/system/cpu";
+
+struct LatencyState {
+    file: fs::File,
+    value: i32,
+}
+
+static LATENCY: OnceLock<Mutex<Option<LatencyState>>> = OnceLock::new();
+
+struct DynamicLatencyState {
+    stop: Arc<AtomicBool>,
+    worker: JoinHandle<()>,
+}
+
+static DYNAMIC_LATENCY: OnceLock<Mutex<Option<DynamicLatencyState>>> = OnceLock::new();
 
 const ALLOWED_GOVERNORS: &[&str] = &[
     "performance",
@@ -186,9 +205,195 @@ pub fn apply_sampling_down_factor(rollback: &Rollback, raw: &str) -> Result<()> 
 }
 
 pub fn apply_force_latency(_rollback: &Rollback, raw: &str) -> Result<()> {
-    bail!(
-        "force_latency='{raw}' requires a persistent PM QoS descriptor; refusing a non-persistent approximation"
-    )
+    let Some(value) = resolve_latency(raw)? else {
+        cleanup_latency();
+        return Ok(());
+    };
+    let path = crate::config::resolve_path("/dev/cpu_dma_latency");
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("Failed to open {}", path.display()))?;
+    file.write_all(&value.to_ne_bytes())
+        .with_context(|| format!("Failed to set PM QoS latency through {}", path.display()))?;
+    *latency_slot().lock().unwrap() = Some(LatencyState { file, value });
+    Ok(())
+}
+
+pub fn cleanup_latency() {
+    cleanup_dynamic_latency();
+    *latency_slot().lock().unwrap() = None;
+}
+
+pub fn apply_dynamic_latency(options: &crate::profile::PluginOptions) -> Result<()> {
+    use crate::profile_units::option_value;
+
+    cleanup_dynamic_latency();
+    if option_value(options, "force_latency").is_some()
+        || option_value(options, "pm_qos_resume_latency_us").is_some()
+    {
+        return Ok(());
+    }
+    let threshold = option_value(options, "load_threshold")
+        .unwrap_or("0.2")
+        .trim()
+        .parse::<f64>()?;
+    if !(0.0..=1.0).contains(&threshold) {
+        bail!("CPU load_threshold must be between 0 and 1");
+    }
+    let low = resolve_latency(option_value(options, "latency_low").unwrap_or("100"))?
+        .ok_or_else(|| anyhow::anyhow!("latency_low cannot resolve to None"))?;
+    let high = resolve_latency(option_value(options, "latency_high").unwrap_or("1000"))?
+        .ok_or_else(|| anyhow::anyhow!("latency_high cannot resolve to None"))?;
+    let path = crate::config::resolve_path("/dev/cpu_dma_latency");
+    let file = match fs::OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let stat = crate::config::resolve_path("/proc/stat");
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = Arc::clone(&stop);
+    let worker = thread::Builder::new()
+        .name("tuned-rs-cpu-latency".into())
+        .spawn(move || dynamic_latency_loop(file, stat, threshold, low, high, worker_stop))?;
+    *dynamic_latency_slot().lock().unwrap() = Some(DynamicLatencyState { stop, worker });
+    Ok(())
+}
+
+fn cleanup_dynamic_latency() {
+    let Some(state) = dynamic_latency_slot().lock().unwrap().take() else {
+        return;
+    };
+    state.stop.store(true, Ordering::Release);
+    let _ = state.worker.join();
+}
+
+fn dynamic_latency_slot() -> &'static Mutex<Option<DynamicLatencyState>> {
+    DYNAMIC_LATENCY.get_or_init(|| Mutex::new(None))
+}
+
+fn dynamic_latency_loop(
+    mut file: fs::File,
+    stat: PathBuf,
+    threshold: f64,
+    low: i32,
+    high: i32,
+    stop: Arc<AtomicBool>,
+) {
+    let mut previous = read_cpu_sample(&stat).ok();
+    let mut selected = None;
+    while !stop.load(Ordering::Acquire) {
+        thread::sleep(Duration::from_secs(1));
+        let Ok(current) = read_cpu_sample(&stat) else {
+            continue;
+        };
+        let Some(old) = previous.replace(current) else {
+            continue;
+        };
+        let total = current.0.saturating_sub(old.0);
+        let idle = current.1.saturating_sub(old.1);
+        if total == 0 {
+            continue;
+        }
+        let load = 1.0 - idle as f64 / total as f64;
+        let value = if load < threshold { high } else { low };
+        if selected != Some(value) && file.write_all(&value.to_ne_bytes()).is_ok() {
+            selected = Some(value);
+        }
+    }
+}
+
+fn read_cpu_sample(path: &Path) -> Result<(u64, u64)> {
+    let contents = fs::read_to_string(path)?;
+    let fields = contents
+        .lines()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Missing aggregate CPU statistics"))?
+        .split_whitespace()
+        .skip(1)
+        .map(str::parse::<u64>)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if fields.len() < 4 {
+        bail!("Incomplete aggregate CPU statistics");
+    }
+    let total = fields.iter().copied().sum();
+    let idle = fields[3] + fields.get(4).copied().unwrap_or(0);
+    Ok((total, idle))
+}
+
+pub fn verify_force_latency(raw: &str) -> bool {
+    let Ok(expected) = resolve_latency(raw) else {
+        return false;
+    };
+    let held = latency_slot().lock().unwrap();
+    match (expected, held.as_ref()) {
+        (None, None) => true,
+        (Some(expected), Some(state)) => {
+            let _ = &state.file;
+            state.value == expected
+        }
+        _ => false,
+    }
+}
+
+fn latency_slot() -> &'static Mutex<Option<LatencyState>> {
+    LATENCY.get_or_init(|| Mutex::new(None))
+}
+
+fn resolve_latency(raw: &str) -> Result<Option<i32>> {
+    for candidate in raw.split('|').map(str::trim) {
+        if candidate.eq_ignore_ascii_case("none") {
+            return Ok(None);
+        }
+        if let Ok(value) = candidate.parse::<i32>() {
+            if value < 0 {
+                bail!("CPU DMA latency cannot be negative");
+            }
+            return Ok(Some(value));
+        }
+        let (kind, key, no_zero) = if let Some(key) = candidate.strip_prefix("cstate.id:") {
+            ("id", key, false)
+        } else if let Some(key) = candidate.strip_prefix("cstate.id_no_zero:") {
+            ("id", key, true)
+        } else if let Some(key) = candidate.strip_prefix("cstate.name:") {
+            ("name", key, false)
+        } else if let Some(key) = candidate.strip_prefix("cstate.name_no_zero:") {
+            ("name", key, true)
+        } else {
+            continue;
+        };
+        if let Some(value) = cstate_latency(kind, key)? {
+            if !no_zero || value != 0 {
+                return Ok(Some(value));
+            }
+        }
+    }
+    bail!("No CPU latency fallback could be resolved from '{raw}'")
+}
+
+fn cstate_latency(kind: &str, key: &str) -> Result<Option<i32>> {
+    let root = crate::config::resolve_path("/sys/devices/system/cpu/cpu0/cpuidle");
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let matched = if kind == "id" {
+            key.parse::<u32>()
+                .ok()
+                .is_some_and(|id| name == format!("state{id}"))
+        } else {
+            fs::read_to_string(entry.path().join("name")).is_ok_and(|name| name.trim() == key)
+        };
+        if matched {
+            let latency = fs::read_to_string(entry.path().join("latency"))?;
+            return Ok(Some(latency.trim().parse::<i32>()?));
+        }
+    }
+    Ok(None)
 }
 
 fn apply_pstate_percentage(rollback: &Rollback, leaf: &str, raw: &str) -> Result<()> {
@@ -424,6 +629,32 @@ fn active_value(raw: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn resolves_numeric_and_cstate_latency_fallbacks() {
+        let root = TempDir::new().unwrap();
+        let state = root
+            .path()
+            .join("sys/devices/system/cpu/cpu0/cpuidle/state2");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("name"), "C2\n").unwrap();
+        fs::write(state.join("latency"), "25\n").unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        assert_eq!(resolve_latency("cstate.name:C2|10").unwrap(), Some(25));
+        assert_eq!(resolve_latency("cstate.id:2|10").unwrap(), Some(25));
+        assert_eq!(resolve_latency("cstate.name:missing|10").unwrap(), Some(10));
+        assert_eq!(resolve_latency("cstate.name:missing|None").unwrap(), None);
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn computes_dynamic_cpu_load_from_stat_deltas() {
+        let old = (100_u64, 80_u64);
+        let current = (200_u64, 120_u64);
+        let load = 1.0 - (current.1 - old.1) as f64 / (current.0 - old.0) as f64;
+        assert!((load - 0.6).abs() < f64::EPSILON);
+    }
 
     #[test]
     fn picks_first_available_governor_from_pipe_list() {
