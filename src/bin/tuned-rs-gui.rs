@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::io::Read as _;
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -11,6 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 use zbus::proxy;
 
 const MAX_REQUEST: usize = 64 * 1024;
+const IDLE_TIMEOUT_SECONDS: u64 = 20;
 const HTML: &str = include_str!("../../assets/gui/index.html");
 const ICON: &str = include_str!("../../assets/icons/tuned-circle-gauge.svg");
 static TELEMETRY: OnceLock<Mutex<tuned_rs::telemetry::TelemetryCollector>> = OnceLock::new();
@@ -72,19 +75,40 @@ async fn main() -> Result<()> {
     let url = format!("http://{address}/#token={token}");
     open_browser(&url)?;
     eprintln!("TuneD Control Center is available at {url}");
+    let last_activity = Arc::new(AtomicU64::new(unix_time()));
 
     loop {
-        let (stream, peer) = listener.accept().await?;
+        let accepted = tokio::select! {
+            accepted = listener.accept() => Some(accepted?),
+            () = tokio::time::sleep(std::time::Duration::from_secs(5)) => None,
+        };
+        let Some((stream, peer)) = accepted else {
+            if unix_time().saturating_sub(last_activity.load(Ordering::Relaxed))
+                >= IDLE_TIMEOUT_SECONDS
+            {
+                break;
+            }
+            continue;
+        };
         if !peer.ip().is_loopback() {
             continue;
         }
         let token = token.clone();
+        let last_activity = Arc::clone(&last_activity);
         tokio::spawn(async move {
-            if let Err(error) = serve(stream, &token).await {
+            if let Err(error) = serve(stream, &token, &last_activity).await {
                 eprintln!("GUI request failed: {error:#}");
             }
         });
     }
+    Ok(())
+}
+
+fn unix_time() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn session_token() -> Result<String> {
@@ -102,8 +126,12 @@ fn open_browser(url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn serve(mut stream: TcpStream, token: &str) -> Result<()> {
+async fn serve(mut stream: TcpStream, token: &str, last_activity: &AtomicU64) -> Result<()> {
     let request = read_request(&mut stream).await?;
+    if matches!(request.path.as_str(), "/" | "/icon.svg") || request.token.as_deref() == Some(token)
+    {
+        last_activity.store(unix_time(), Ordering::Relaxed);
+    }
     let response = route(request, token).await;
     let (status, content_type, body) = match response {
         Ok((content_type, body)) => ("200 OK", content_type, body),
