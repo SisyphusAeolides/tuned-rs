@@ -89,6 +89,11 @@ const VM_OPTIONS: &[PluginOption] = &[
         hint: "Transparent huge-page enable policy.",
     },
     PluginOption {
+        name: "transparent_hugepage",
+        default_value: "",
+        hint: "Legacy alias for transparent huge-page enable policy.",
+    },
+    PluginOption {
         name: "transparent_hugepage.defrag",
         default_value: "",
         hint: "Transparent huge-page defragmentation policy.",

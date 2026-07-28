@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use tracing::{info, warn};
@@ -88,7 +88,10 @@ fn apply_transparent_hugepages(rollback: &Rollback, raw_value: &str) -> Result<(
         warn!("Unsupported transparent_hugepages value '{value}'");
         return Ok(());
     }
-    if fs::read_to_string("/proc/cmdline")?.contains("transparent_hugepage=") {
+    if fs::read_to_string(crate::config::resolve_path("/proc/cmdline"))
+        .unwrap_or_default()
+        .contains("transparent_hugepage=")
+    {
         info!("transparent_hugepage set in kernel cmdline; skipping profile value");
         return Ok(());
     }
@@ -98,7 +101,10 @@ fn apply_transparent_hugepages(rollback: &Rollback, raw_value: &str) -> Result<(
         return Ok(());
     }
     let current = read_trimmed(&path)?;
-    rollback.record_original(&rollback_key("vm", "transparent_hugepages"), &current)?;
+    rollback.record_original(
+        &rollback_key("vm", "transparent_hugepages"),
+        active_choice(&current),
+    )?;
     write_sysfs_raw(&path, value)
 }
 
@@ -109,7 +115,10 @@ fn apply_transparent_hugepage_defrag(rollback: &Rollback, raw_value: &str) -> Re
         return Ok(());
     }
     let current = read_trimmed(&path)?;
-    rollback.record_original(&rollback_key("vm", "transparent_hugepage.defrag"), &current)?;
+    rollback.record_original(
+        &rollback_key("vm", "transparent_hugepage.defrag"),
+        active_choice(&current),
+    )?;
     write_sysfs_raw(&path, raw_value.trim())
 }
 
@@ -122,7 +131,7 @@ fn vm_path(option: &str) -> Result<PathBuf> {
     if !VM_OPTIONS.contains(&option) {
         bail!("Unsupported vm option '{option}'");
     }
-    Ok(PathBuf::from("/proc/sys/vm").join(option))
+    Ok(crate::config::resolve_path("/proc/sys/vm").join(option))
 }
 
 fn thp_path() -> Result<PathBuf> {
@@ -130,15 +139,18 @@ fn thp_path() -> Result<PathBuf> {
         "/sys/kernel/mm/transparent_hugepage",
         "/sys/kernel/mm/redhat_transparent_hugepage",
     ] {
-        if Path::new(path).is_dir() {
-            return Ok(PathBuf::from(path));
+        let path = crate::config::resolve_path(path);
+        if path.is_dir() {
+            return Ok(path);
         }
     }
     bail!("Transparent hugepage interface not found")
 }
 
 fn total_memory_bytes() -> Result<u64> {
-    let content = fs::read_to_string("/proc/meminfo").context("Failed to read /proc/meminfo")?;
+    let path = crate::config::resolve_path("/proc/meminfo");
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("Failed to read {}", path.display()))?;
     for line in content.lines() {
         if let Some(kb) = line.strip_prefix("MemTotal:") {
             let kb = kb
@@ -150,4 +162,40 @@ fn total_memory_bytes() -> Result<u64> {
         }
     }
     bail!("MemTotal not found in /proc/meminfo")
+}
+
+fn active_choice(raw: &str) -> &str {
+    let Some(start) = raw.find('[') else {
+        return raw.trim();
+    };
+    let Some(end) = raw[start + 1..].find(']') else {
+        return raw.trim();
+    };
+    raw[start + 1..start + 1 + end].trim()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn transparent_hugepage_apply_and_rollback_use_the_active_choice() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        let thp = root.path().join("sys/kernel/mm/transparent_hugepage");
+        fs::create_dir_all(&thp).unwrap();
+        fs::create_dir_all(root.path().join("proc")).unwrap();
+        fs::write(root.path().join("proc/cmdline"), "quiet").unwrap();
+        fs::write(thp.join("enabled"), "[always] madvise never\n").unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+
+        let rollback = Rollback::load().unwrap();
+        apply_option(&rollback, "transparent_hugepage", "never").unwrap();
+        assert_eq!(fs::read_to_string(thp.join("enabled")).unwrap(), "never");
+        rollback.restore_all().unwrap();
+        assert_eq!(fs::read_to_string(thp.join("enabled")).unwrap(), "always");
+
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
 }
