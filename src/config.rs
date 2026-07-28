@@ -132,6 +132,40 @@ pub fn unix_socket_backlog() -> u32 {
         .unwrap_or(1024)
 }
 
+pub fn unix_socket_ownership() -> (Option<u32>, Option<u32>) {
+    let value = global_config_value("unix_socket_ownership").unwrap_or_else(|| "-1 -1".to_string());
+    let mut fields = value.split_whitespace();
+    (
+        fields.next().and_then(|value| resolve_account(value, true)),
+        fields
+            .next()
+            .and_then(|value| resolve_account(value, false)),
+    )
+}
+
+fn resolve_account(value: &str, user: bool) -> Option<u32> {
+    if value == "-1" {
+        return None;
+    }
+    if let Ok(id) = value.parse::<u32>() {
+        return Some(id);
+    }
+    let database = if user { "passwd" } else { "group" };
+    let output = std::process::Command::new("getent")
+        .args([database, value])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()?
+        .split(':')
+        .nth(2)?
+        .parse()
+        .ok()
+}
+
 pub fn unix_socket_signal_paths() -> Vec<PathBuf> {
     global_config_value("unix_socket_signal_paths")
         .map(|value| split_path_list(&value))

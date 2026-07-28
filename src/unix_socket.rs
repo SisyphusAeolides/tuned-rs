@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -58,6 +59,7 @@ pub fn spawn(daemon: Arc<Daemon>) -> Result<Option<Server>> {
         &path,
         fs::Permissions::from_mode(config::unix_socket_permissions()),
     )?;
+    apply_ownership(&path, config::unix_socket_ownership())?;
     let worker = tokio::spawn(async move {
         loop {
             let (stream, _) = match listener.accept().await {
@@ -79,16 +81,40 @@ pub fn spawn(daemon: Arc<Daemon>) -> Result<Option<Server>> {
 }
 
 fn validate_socket_path(path: &std::path::Path) -> Result<()> {
-    let run = config::resolve_path("/run");
-    let relative = path
-        .strip_prefix(&run)
-        .map_err(|_| anyhow::anyhow!("TuneD Unix socket must remain below /run"))?;
-    if relative.as_os_str().is_empty()
-        || !relative
+    let logical = if std::env::var_os("TUNED_RS_ROOT").is_some() {
+        path.strip_prefix(config::resolve_path("/"))
+            .map_err(|_| anyhow::anyhow!("TuneD Unix socket escapes the configured root"))?
+    } else {
+        path.strip_prefix("/")
+            .map_err(|_| anyhow::anyhow!("TuneD Unix socket path must be absolute"))?
+    };
+    if logical.components().count() < 2
+        || !logical
             .components()
             .all(|component| matches!(component, std::path::Component::Normal(_)))
     {
         bail!("Invalid TuneD Unix-socket path {}", path.display());
+    }
+    Ok(())
+}
+
+fn apply_ownership(path: &std::path::Path, ownership: (Option<u32>, Option<u32>)) -> Result<()> {
+    let (uid, gid) = ownership;
+    if uid.is_none() && gid.is_none() {
+        return Ok(());
+    }
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+    // SAFETY: `path` is a NUL-terminated path owned for the duration of the
+    // call; `u32::MAX` is the POSIX sentinel for an unchanged owner/group.
+    if unsafe {
+        libc::chown(
+            path.as_ptr(),
+            uid.unwrap_or(u32::MAX),
+            gid.unwrap_or(u32::MAX),
+        )
+    } != 0
+    {
+        return Err(std::io::Error::last_os_error()).context("Failed to set Unix-socket ownership");
     }
     Ok(())
 }
@@ -319,9 +345,13 @@ mod tests {
     }
 
     #[test]
-    fn socket_path_must_remain_below_runtime_directory() {
+    fn socket_path_must_be_absolute_normalized_and_non_broad() {
+        let _guard = config::test_env_lock();
+        std::env::remove_var("TUNED_RS_ROOT");
         assert!(validate_socket_path(&config::resolve_path("/run/tuned/tuned.sock")).is_ok());
-        assert!(validate_socket_path(&config::resolve_path("/etc/tuned.sock")).is_err());
+        assert!(validate_socket_path(std::path::Path::new("relative.sock")).is_err());
+        assert!(validate_socket_path(std::path::Path::new("/tuned.sock")).is_err());
+        assert!(validate_socket_path(std::path::Path::new("/run/../etc/tuned.sock")).is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]
