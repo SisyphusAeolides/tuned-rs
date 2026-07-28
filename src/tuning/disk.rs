@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use anyhow::{bail, Context, Result};
 use tracing::{info, warn};
 
+use crate::config;
+use crate::device_matcher;
 use crate::rollback::{rollback_key, Rollback};
 use crate::tuning::modifiers::{
     parse_assignment, read_trimmed, resolve_choice, resolve_numeric_assignment,
@@ -102,25 +104,28 @@ fn parse_readahead_kb(raw: &str) -> Result<i64> {
 }
 
 fn resolve_devices(devices: Option<&str>) -> Result<Vec<String>> {
-    if let Some(list) = devices {
-        return Ok(list
-            .split([',', ' '])
-            .map(str::trim)
-            .filter(|part| !part.is_empty())
-            .map(str::to_string)
-            .collect());
-    }
+    let base = config::resolve_path("/sys/block");
+    let entries = match fs::read_dir(&base) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to read {}", base.display()))
+        }
+    };
 
-    let mut devices = Vec::new();
-    for entry in fs::read_dir("/sys/block").context("Failed to read /sys/block")? {
+    let mut inventory = Vec::new();
+    for entry in entries {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if is_tunable_block_device(&name) {
-            devices.push(name);
+            inventory.push(name);
         }
     }
-    devices.sort_unstable();
-    Ok(devices)
+
+    Ok(device_matcher::filter_names(
+        devices.unwrap_or("*"),
+        inventory,
+    ))
 }
 
 fn is_tunable_block_device(name: &str) -> bool {
@@ -140,8 +145,32 @@ fn device_option_path(device: &str, option: &str) -> Result<PathBuf> {
     {
         bail!("Invalid block device name '{device}'");
     }
-    Ok(PathBuf::from("/sys/block")
+    Ok(config::resolve_path("/sys/block")
         .join(device)
         .join("queue")
         .join(option))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selectors_filter_the_supported_inventory() {
+        let selected = device_matcher::filter_names(
+            "sd* !sda",
+            vec![
+                "nvme0n1".to_string(),
+                "sdb".to_string(),
+                "sda".to_string(),
+            ],
+        );
+        assert_eq!(selected, ["sdb"]);
+    }
+
+    #[test]
+    fn rejects_block_device_path_injection() {
+        assert!(device_option_path("../sda", "scheduler").is_err());
+        assert!(device_option_path("sda/queue", "scheduler").is_err());
+    }
 }
