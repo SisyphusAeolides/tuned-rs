@@ -18,6 +18,7 @@ pub mod scheduler;
 pub mod script;
 pub mod scsi_host;
 pub mod selinux;
+pub mod service;
 pub mod storage;
 pub mod sysctl;
 pub mod sysfs;
@@ -87,6 +88,7 @@ fn apply_unit(rollback: &Rollback, unit: &ProfileUnit) -> Result<()> {
             }
             Ok(())
         }
+        "service" => service::apply_options(rollback, &unit.options),
         "gpu" => gpu::apply_gpu_options(rollback, &unit.options),
         "storage" => storage::apply_storage_options(rollback, &unit.options),
         "thermal" => thermal::apply_thermal_options(rollback, &unit.options),
@@ -167,7 +169,10 @@ fn validate_unit_contract(unit: &ProfileUnit) -> Result<()> {
         );
     }
 
-    if matches!(unit.plugin_type.as_str(), "modules" | "sysctl" | "sysfs") {
+    if matches!(
+        unit.plugin_type.as_str(),
+        "modules" | "sysctl" | "sysfs" | "service"
+    ) {
         return Ok(());
     }
 

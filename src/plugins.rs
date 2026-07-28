@@ -450,6 +450,8 @@ const SCRIPT_OPTIONS: &[PluginOption] = &[PluginOption {
     hint: "Executable inside a configured profile directory.",
 }];
 
+const SERVICE_OPTIONS: &[PluginOption] = &[];
+
 const GPU_OPTIONS: &[PluginOption] = &[
     PluginOption {
         name: "amd_power_profile",
@@ -736,6 +738,11 @@ pub const PLUGINS: &[PluginDescriptor] = &[
         options: SCRIPT_OPTIONS,
     },
     PluginDescriptor {
+        name: "service",
+        documentation: "Controls service state, enablement, and systemd configuration overlays.",
+        options: SERVICE_OPTIONS,
+    },
+    PluginDescriptor {
         name: "gpu",
         documentation: "Controls AMD and NVIDIA GPU power and clock policy.",
         options: GPU_OPTIONS,
@@ -848,6 +855,7 @@ mod tests {
             "eeepc_she",
             "bootloader",
             "script",
+            "service",
             "gpu",
             "storage",
             "thermal",

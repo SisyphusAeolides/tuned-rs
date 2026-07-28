@@ -98,6 +98,11 @@ impl Rollback {
         self.record_file_snapshot("bootfile", path)
     }
 
+    pub fn record_systemd_dropin(&self, path: &Path) -> Result<()> {
+        validate_systemd_dropin(path)?;
+        self.record_file_snapshot("systemdfile", path)
+    }
+
     fn record_file_snapshot(&self, kind: &str, path: &Path) -> Result<()> {
         let snapshot = match fs::read(path) {
             Ok(contents) => ManagedFileSnapshot {
@@ -257,6 +262,12 @@ fn restore_entry(key: &str, original: &str, managed_files: &[PathBuf]) -> Result
             validate_boot_file(Path::new(target))?;
             restore_file_snapshot(Path::new(target), original)
         }
+        "systemdfile" => {
+            validate_systemd_dropin(Path::new(target))?;
+            restore_file_snapshot(Path::new(target), original)?;
+            crate::tuning::service::daemon_reload()
+        }
+        "service" => crate::tuning::service::restore_state(target, original),
         "script" => crate::tuning::script::run_rollback_script(Path::new(target), original),
         "hdparm-apm" => crate::tuning::disk::restore_hdparm("apm", target, original),
         "hdparm-spindown" => crate::tuning::disk::restore_hdparm("spindown", target, original),
@@ -302,6 +313,29 @@ fn validate_boot_file(path: &Path) -> Result<()> {
             "Refusing boot-file rollback outside /boot: {}",
             path.display()
         )
+    }
+}
+
+fn validate_systemd_dropin(path: &Path) -> Result<()> {
+    let root = config::resolve_path("/etc/systemd/system");
+    let Ok(relative) = path.strip_prefix(&root) else {
+        bail!("Refusing systemd rollback outside system unit configuration");
+    };
+    let components = relative.components().collect::<Vec<_>>();
+    let directory = components
+        .first()
+        .and_then(|component| component.as_os_str().to_str())
+        .unwrap_or_default();
+    if components.len() == 2
+        && directory.ends_with(".service.d")
+        && components[1]
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| !name.is_empty())
+    {
+        Ok(())
+    } else {
+        bail!("Invalid systemd service drop-in path: {}", path.display())
     }
 }
 

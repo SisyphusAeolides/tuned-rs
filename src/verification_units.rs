@@ -54,6 +54,7 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport) {
             "eeepc_she" => verify_eeepc_she(&unit, report),
             "bootloader" => verify_bootloader(&unit, report),
             "script" => verify_script(&unit, report),
+            "service" => verify_service(&unit, report),
             "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
                 if is_conditional(&unit) {
                     issue(
@@ -835,6 +836,21 @@ fn verify_script(unit: &ProfileUnit, report: &mut VerificationReport) {
             None,
             error.to_string(),
         ),
+    }
+}
+
+fn verify_service(unit: &ProfileUnit, report: &mut VerificationReport) {
+    if !tuning::service::verify_options(&unit.options, true) {
+        issue(
+            report,
+            VerificationIssueKind::Mismatch,
+            "service",
+            "state",
+            &unit.name,
+            "configured service states and overlays",
+            None,
+            "one or more service states or configuration overlays differ",
+        );
     }
 }
 
