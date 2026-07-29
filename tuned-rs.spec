@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.5
+Version:        0.2.6
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -110,6 +110,10 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Wed Jul 29 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-1
+- Reconcile firmware platform-profile drift with the selected TuneD profile
+- Treat unavailable vendor-specific video controls as not applicable
+
 * Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.5-1
 - Honor verify --ignore-missing for vendor-specific video controls
 

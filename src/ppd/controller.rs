@@ -167,6 +167,21 @@ impl PpdCore {
         Ok(())
     }
 
+    async fn reapply_profile(&self, profile: &str) -> Result<()> {
+        let tuned_profile = {
+            let config = self.config.read().await;
+            let on_battery = *self.on_battery.read().await;
+            config.ppd_to_tuned.get(profile, on_battery)?.to_string()
+        };
+
+        info!("Reapplying TuneD profile '{tuned_profile}' after platform-profile drift");
+        let (ok, message) = self.tuned.switch_profile(&tuned_profile).await?;
+        if !ok {
+            anyhow::bail!("{message}");
+        }
+        Ok(())
+    }
+
     async fn set_tuned_profile(&self, tuned_profile: &str) -> Result<bool> {
         let current = self.tuned.active_profile().await?;
         if current == tuned_profile {
@@ -420,6 +435,13 @@ impl PpdCore {
         info!("Platform profile changed: {platform}");
 
         let active = self.active_profile().await;
+        if !self.config.read().await.sysfs_acpi_monitor {
+            if ppd_profile != active {
+                self.reapply_profile(&active).await?;
+            }
+            return Ok(());
+        }
+
         let base = self.base_profile().await;
         if !base.is_empty() && active == base && ppd_profile != base {
             debug!(
@@ -500,9 +522,7 @@ pub async fn run() -> Result<()> {
         spawn_performance_monitor(core_for_perf).await;
     });
 
-    if core.config.read().await.sysfs_acpi_monitor
-        && std::path::Path::new(config::PLATFORM_PROFILE_PATH).exists()
-    {
+    if std::path::Path::new(config::PLATFORM_PROFILE_PATH).exists() {
         let core_for_platform = core.clone();
         tokio::spawn(async move {
             spawn_platform_profile_monitor(core_for_platform).await;

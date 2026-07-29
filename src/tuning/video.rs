@@ -22,7 +22,7 @@ pub fn apply_options(rollback: &Rollback, selector: &str, options: &PluginOption
     Ok(())
 }
 
-pub fn verify_options(selector: &str, options: &PluginOptions, ignore_missing: bool) -> bool {
+pub fn verify_options(selector: &str, options: &PluginOptions, _ignore_missing: bool) -> bool {
     let devices = match selected_drm_devices(selector) {
         Ok(devices) => devices,
         Err(error) => {
@@ -75,9 +75,8 @@ pub fn verify_options(selector: &str, options: &PluginOptions, ignore_missing: b
                 }
             }
         }
-        if !found && !ignore_missing {
-            warn!("No Radeon power-method controls were found");
-            verified = false;
+        if !found {
+            debug!("No applicable Radeon power-method controls were found");
         }
     }
 
@@ -113,9 +112,8 @@ pub fn verify_options(selector: &str, options: &PluginOptions, ignore_missing: b
                 }
             }
         }
-        if !found && !ignore_missing {
-            warn!("No amdgpu panel_power_savings controls were found");
-            verified = false;
+        if !found {
+            debug!("No applicable amdgpu panel_power_savings controls were found");
         }
     }
 
@@ -350,14 +348,14 @@ mod tests {
     }
 
     #[test]
-    fn ignore_missing_accepts_absent_vendor_controls() {
+    fn absent_vendor_controls_are_not_applicable() {
         let _env_guard = crate::config::test_env_lock();
         let root = TempDir::new().unwrap();
         fs::create_dir_all(root.path().join("sys/class/drm")).unwrap();
         std::env::set_var("TUNED_RS_ROOT", root.path());
         let options = vec![("panel_power_savings".to_string(), "0".to_string())];
 
-        assert!(!verify_options("*", &options, false));
+        assert!(verify_options("*", &options, false));
         assert!(verify_options("*", &options, true));
 
         std::env::remove_var("TUNED_RS_ROOT");
