@@ -20,8 +20,9 @@ owns TuneD's system D-Bus API, and consumes existing TuneD profiles.
   service, IRQ, USB, video, audio, ACPI, uncore, mount, and realtime controls
 - dynamic disk, network, CPU, scheduler, and device-instance tuning
 
-The RPM provides and obsoletes both `tuned` and `tuned-ppd`, so it can replace
-the Python packages without changing callers or service names.
+The Arch package provides and replaces both `tuned` and
+`power-profiles-daemon`, so it can replace the Python packages without changing
+callers or service names.
 
 ## Control Center
 
@@ -38,19 +39,27 @@ has closed. Changes are applied through TuneD's transactional instance API.
 
 ## Install
 
-On Fedora, RHEL, or an EPEL-enabled system:
+On an Arch-based system, add the Sisyphus repository to
+`/etc/pacman.conf`:
+
+```ini
+[sisyphus]
+SigLevel = Optional TrustAll
+Server = https://sisyphusaeolides.github.io/Sisyphus-Repo/$arch
+```
+
+Then install and start TuneD:
 
 ```bash
-sudo dnf install dnf-plugins-core
-sudo dnf copr enable sisyphuscode/tuned-rs
-sudo dnf install tuned-rs
+sudo pacman -Syy
+sudo pacman -S tuned-rs
 sudo systemctl enable --now tuned.service
 ```
 
 To build from source:
 
 ```bash
-sudo dnf install cargo rust make systemd-devel
+sudo pacman -S --needed base-devel rust cargo systemd
 make check
 make test
 sudo make install
@@ -80,7 +89,7 @@ instance priority, sysctl reapplication, and startup udev-settle controls.
 Power-profile mappings are read from `/etc/tuned/ppd.conf`.
 
 The package installs administrator-editable realtime and CPU-partitioning
-variable templates in `/etc/tuned`. RPM upgrades preserve local edits.
+variable templates in `/etc/tuned`. Package upgrades preserve local edits.
 
 Useful test-only overrides are:
 
