@@ -1,7 +1,7 @@
 Name:           tuned-rs
 Epoch:          1
 Version:        0.2.6
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
 Provides:       tuned = %{epoch}:%{version}-%{release}
@@ -21,6 +21,7 @@ BuildRequires:  cargo-rpm-macros >= 24
 %else
 BuildRequires:  cargo >= 1.75
 %endif
+BuildRequires:  gcc
 BuildRequires:  make
 BuildRequires:  rust >= 1.75
 BuildRequires:  systemd-rpm-macros
@@ -131,6 +132,9 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Tue Aug 04 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-4
+- Declare the native linker build dependency
+
 * Mon Aug 03 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-3
 - Retain Enterprise Linux compatibility alongside Fedora cargo macros
 
