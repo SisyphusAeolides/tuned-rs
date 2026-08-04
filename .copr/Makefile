@@ -3,7 +3,7 @@
 .PHONY: srpm
 
 name := tuned-rs
-version := 0.1.0
+version := $(shell awk 'tolower($$1) == "version:" { print $$2; exit }' $(spec))
 builddir := $(shell mktemp -d)
 
 srpm:
