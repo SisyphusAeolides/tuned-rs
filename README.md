@@ -40,10 +40,12 @@ has closed. Changes are applied through TuneD's transactional instance API.
 ## Install
 
 On DNF/RPM based system, add the COPR repo:
+
+```bash
 sudo dnf copr enable sisyphuscode/tuned-rs 
 sudo dnf install tuned-rs
 sudo systemctl enable --now tuned-rs tuned-rs-ppd
-
+```
 On an Arch-based system, add the Sisyphus repository to
 `/etc/pacman.conf`:
 
