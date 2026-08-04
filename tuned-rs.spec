@@ -1,7 +1,7 @@
 Name:           tuned-rs
 Epoch:          1
 Version:        0.2.6
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
 Provides:       tuned = %{epoch}:%{version}-%{release}
@@ -16,7 +16,11 @@ URL:            https://github.com/SisyphusAeolides/tuned-rs
 Source0:        %{name}-%{version}.tar.gz
 Source1:        vendor.tar.xz
 
+%if 0%{?fedora}
 BuildRequires:  cargo-rpm-macros >= 24
+%else
+BuildRequires:  cargo >= 1.75
+%endif
 BuildRequires:  make
 BuildRequires:  rust >= 1.75
 BuildRequires:  systemd-rpm-macros
@@ -35,14 +39,23 @@ power-profiles-daemon compatibility services.
 
 %prep
 %autosetup -p1 -a 1
+%if 0%{?fedora}
 # Tells Fedora's build system to use your existing vendor.tar.xz directory
 %cargo_prep -v vendor
+%else
+mkdir -p .cargo
+mv cargo-config.toml .cargo/config.toml
+%endif
 
 %build
+%if 0%{?fedora}
 # Replaces manual cargo commands and injects Fedora's hardening flags (PIE, RELRO)
 %cargo_build
 # Prints the required multi-license string to the build log
 %{cargo_license_summary}
+%else
+CARGO_NET_OFFLINE=true CARGO_PROFILE_RELEASE_DEBUG=2 cargo build --frozen --release
+%endif
 
 %install
 make install-bin DESTDIR=%{buildroot} BINDIR=%{_bindir} SBINDIR=%{_sbindir}
@@ -67,8 +80,12 @@ if [ -d %{_sysconfdir}/grub.d ]; then
 fi
 
 %check
+%if 0%{?fedora}
 # Replaces manual cargo commands with the offline-compatible macro
 %cargo_test
+%else
+CARGO_NET_OFFLINE=true cargo test --frozen --all-targets
+%endif
 make packaging-check
 
 %files
@@ -114,6 +131,9 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Mon Aug 03 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-3
+- Retain Enterprise Linux compatibility alongside Fedora cargo macros
+
 * Mon Aug 03 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-2
 - Adopt Fedora cargo RPM macros for compliance
 
