@@ -7,6 +7,8 @@ use tracing::{debug, error, info, warn};
 
 const THERMAL_BASE: &str = "/sys/class/thermal";
 const HWMON_BASE: &str = "/sys/class/hwmon";
+const MINIMUM_CPU_TEMP_LIMIT_CELSIUS: u32 = 1;
+const MAXIMUM_CPU_TEMP_LIMIT_CELSIUS: u32 = 125;
 
 pub fn apply_thermal_options(rollback: &Rollback, options: &[(String, String)]) -> Result<()> {
     if options.is_empty() {
@@ -66,7 +68,7 @@ fn apply_cpu_temp_limit(rollback: &Rollback, value: &str) -> Result<bool> {
             continue;
         }
 
-        let temp_millidegrees = value.parse::<u32>().unwrap_or(85) * 1000;
+        let temp_millidegrees = parse_cpu_temp_limit(value)?;
         let original = read_trimmed(&trip_path)?;
         if original == temp_millidegrees.to_string() {
             continue;
@@ -81,6 +83,21 @@ fn apply_cpu_temp_limit(rollback: &Rollback, value: &str) -> Result<bool> {
         return Ok(true);
     }
     Ok(false)
+}
+
+fn parse_cpu_temp_limit(value: &str) -> Result<u32> {
+    let temperature = value
+        .parse::<u32>()
+        .map_err(|error| anyhow::anyhow!("invalid CPU temperature limit '{value}': {error}"))?;
+    if !(MINIMUM_CPU_TEMP_LIMIT_CELSIUS..=MAXIMUM_CPU_TEMP_LIMIT_CELSIUS).contains(&temperature) {
+        anyhow::bail!(
+            "CPU temperature limit must be between {MINIMUM_CPU_TEMP_LIMIT_CELSIUS} and \
+             {MAXIMUM_CPU_TEMP_LIMIT_CELSIUS} degrees Celsius"
+        );
+    }
+    temperature
+        .checked_mul(1000)
+        .ok_or_else(|| anyhow::anyhow!("CPU temperature limit overflows millidegrees"))
 }
 
 fn apply_fan_control(rollback: &Rollback, value: &str) -> Result<bool> {
@@ -173,4 +190,21 @@ pub fn get_current_temps() -> Result<Vec<(String, f64)>> {
         }
     }
     Ok(temps)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cpu_temp_limit;
+
+    #[test]
+    fn accepts_bounded_cpu_temperature_limits() {
+        assert_eq!(parse_cpu_temp_limit("85").unwrap(), 85_000);
+    }
+
+    #[test]
+    fn rejects_malformed_and_out_of_range_temperature_limits() {
+        for value in ["eighty-five", "0", "126", "4294968"] {
+            assert!(parse_cpu_temp_limit(value).is_err(), "{value} should fail");
+        }
+    }
 }

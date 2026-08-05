@@ -86,15 +86,25 @@ fn apply_io_scheduler(rollback: &Rollback, value: &str) -> Result<bool> {
         if !sched_path.exists() {
             continue;
         }
-        let original = read_trimmed(&sched_path)?;
+        let scheduler_state = read_trimmed(&sched_path)?;
+        let original = active_scheduler(&scheduler_state)?;
         rollback.record_original(
             &rollback_key("sysfs", &sched_path.to_string_lossy()),
-            &original,
+            original,
         )?;
         fs::write(&sched_path, value)?;
         updated = true;
     }
+
     Ok(updated)
+}
+
+fn active_scheduler(value: &str) -> Result<&str> {
+    value
+        .split_ascii_whitespace()
+        .find_map(|scheduler| scheduler.strip_prefix('[')?.strip_suffix(']'))
+        .filter(|scheduler| !scheduler.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("kernel scheduler state has no active scheduler: {value}"))
 }
 
 fn apply_nr_requests(rollback: &Rollback, value: &str) -> Result<bool> {
@@ -121,4 +131,22 @@ fn apply_nr_requests(rollback: &Rollback, value: &str) -> Result<bool> {
         updated = true;
     }
     Ok(updated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::active_scheduler;
+
+    #[test]
+    fn extracts_the_active_kernel_scheduler() {
+        assert_eq!(
+            active_scheduler("none [mq-deadline] kyber").unwrap(),
+            "mq-deadline"
+        );
+    }
+
+    #[test]
+    fn rejects_scheduler_state_without_an_active_entry() {
+        assert!(active_scheduler("none kyber").is_err());
+    }
 }
