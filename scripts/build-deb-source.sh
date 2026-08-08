@@ -48,9 +48,9 @@ tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 \
 
 cd "$source_dir"
 if [ -n "$sign_option" ]; then
-    dpkg-buildpackage --build=source -sa -d "$sign_option"
+    dpkg-buildpackage --no-pre-clean --build=source -sa -d "$sign_option"
 else
-    dpkg-buildpackage --build=source -sa -d
+    dpkg-buildpackage --no-pre-clean --build=source -sa -d
 fi
 
 install -m 0644 "$orig_archive" "$output_dir/"
