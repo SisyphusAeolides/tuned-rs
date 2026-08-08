@@ -39,6 +39,42 @@ has closed. Changes are applied through TuneD's transactional instance API.
 
 ## Install
 
+On Ubuntu, install the build dependencies and create a native Debian package:
+
+```bash
+sudo apt install build-essential cargo rustc debhelper pkg-config libudev-dev
+make check
+make test
+make deb
+sudo apt install ../tuned-rs_0.2.7-1~ppa1~ubuntu26.04.1_$(dpkg --print-architecture).deb
+sudo systemctl enable --now tuned.service tuned-ppd.service
+```
+
+The Debian package conflicts with and replaces Ubuntu's `tuned`, `tuned-ppd`,
+and `power-profiles-daemon` packages because they own the same service and D-Bus
+identities. APT will show the replacement transaction before installation.
+
+Published builds are available from the Corinth PPA:
+
+```bash
+sudo add-apt-repository ppa:sisyphusaeolides/corinth
+sudo apt update
+sudo apt install tuned-rs
+```
+
+To create a signed, offline-buildable source upload for Launchpad:
+
+```bash
+make ppa-source
+sudo apt install dput
+dput ppa:sisyphusaeolides/corinth \
+  ../tuned-rs_0.2.7-1~ppa1~ubuntu26.04.1_source.changes
+```
+
+The source target vendors the locked Cargo dependency set into the original
+source archive because Launchpad builders do not access crates.io. Use
+`make ppa-source-unsigned` only for local source-package validation.
+
 On DNF/RPM based system, add the COPR repo:
 
 ```bash

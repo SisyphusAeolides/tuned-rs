@@ -91,19 +91,17 @@ pub fn augment(profile: &Profile, report: &mut VerificationReport, ignore_missin
             "script" => verify_script(&unit, report),
             "service" => verify_service(&unit, report),
             "mounts" => verify_mounts(&unit, report),
-            "gpu" | "storage" | "thermal" | "battery" | "hermes" => {
-                if is_conditional(&unit) {
-                    issue(
-                        report,
-                        VerificationIssueKind::Unsupported,
-                        &unit.plugin_type,
-                        "conditional-unit-verification",
-                        &unit.name,
-                        "verified conditional unit",
-                        None,
-                        "detailed conditional verification is not implemented for this plugin",
-                    );
-                }
+            "gpu" | "storage" | "thermal" | "battery" | "hermes" if is_conditional(&unit) => {
+                issue(
+                    report,
+                    VerificationIssueKind::Unsupported,
+                    &unit.plugin_type,
+                    "conditional-unit-verification",
+                    &unit.name,
+                    "verified conditional unit",
+                    None,
+                    "detailed conditional verification is not implemented for this plugin",
+                );
             }
             _ => {}
         }
@@ -444,20 +442,16 @@ fn verify_cpu(unit: &ProfileUnit, report: &mut VerificationReport) {
                 }
                 check_paths(report, "cpu", option, expected, targets, ValueMode::Exact);
             }
-            "force_latency" => {
-                if !tuning::cpu::verify_force_latency(expected) {
-                    issue(
-                        report,
-                        VerificationIssueKind::Mismatch,
-                        "cpu",
-                        option,
-                        &unit.name,
-                        expected,
-                        None,
-                        "persistent PM QoS latency descriptor differs",
-                    );
-                }
-            }
+            "force_latency" if !tuning::cpu::verify_force_latency(expected) => issue(
+                report,
+                VerificationIssueKind::Mismatch,
+                "cpu",
+                option,
+                &unit.name,
+                expected,
+                None,
+                "persistent PM QoS latency descriptor differs",
+            ),
             _ => {}
         }
     }

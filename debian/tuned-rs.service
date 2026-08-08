@@ -1,0 +1,16 @@
+[Unit]
+Description=Dynamic System Tuning Daemon
+Documentation=man:tuned(8) file:/usr/share/doc/tuned-rs/README.md
+After=systemd-sysctl.service network.target dbus.service polkit.service
+Requires=dbus.service
+Conflicts=cpupower.service auto-cpufreq.service tlp.service power-profiles-daemon.service
+
+[Service]
+Type=dbus
+BusName=com.redhat.tuned
+ExecStart=/usr/sbin/tuned
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

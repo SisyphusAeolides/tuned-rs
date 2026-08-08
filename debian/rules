@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+
+export CARGO_PROFILE_RELEASE_DEBUG = 2
+
+CARGO_FLAGS := --locked
+ifneq ($(wildcard vendor),)
+CARGO_FLAGS += --offline
+endif
+
+%:
+	dh $@
+
+override_dh_clean:
+	dh_clean -Xvendor
+
+override_dh_auto_build:
+	cargo build $(CARGO_FLAGS) --release
+
+override_dh_auto_test:
+	cargo test $(CARGO_FLAGS) --all-targets
+	$(MAKE) packaging-check
+
+override_dh_auto_install:
+	$(MAKE) install-bin install-data \
+		DESTDIR=$(CURDIR)/debian/tuned-rs \
+		PREFIX=/usr \
+		SYSTEMDUNITDIR=/usr/lib/systemd/system
+	install -D -m 0644 SUPPORT.md \
+		$(CURDIR)/debian/tuned-rs/usr/share/doc/tuned-rs/SUPPORT.md
+	install -D -m 0755 packaging/00_tuned.grub \
+		$(CURDIR)/debian/tuned-rs/etc/grub.d/00_tuned
+	ln -s tuned-rs.8 \
+		$(CURDIR)/debian/tuned-rs/usr/share/man/man8/tuned.8
+	ln -s tuned-rs-ppd.8 \
+		$(CURDIR)/debian/tuned-rs/usr/share/man/man8/tuned-ppd.8

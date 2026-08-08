@@ -15,7 +15,7 @@ APPLICATIONDIR ?= /usr/share/applications
 ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 METAINFO_DIR ?= /usr/share/metainfo
 
-.PHONY: all build test check packaging-check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm
+.PHONY: all build test check packaging-check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm deb ppa-source ppa-source-unsigned
 
 all: build
 
@@ -31,6 +31,15 @@ vendor:
 
 srpm: tarball vendor
 	rpmbuild -bs --define "_sourcedir $(PWD)" --define "_srcrpmdir $(PWD)" tuned-rs.spec
+
+deb:
+	dpkg-buildpackage --build=binary --no-sign
+
+ppa-source:
+	sh scripts/build-deb-source.sh
+
+ppa-source-unsigned:
+	sh scripts/build-deb-source.sh --unsigned
 
 build:
 	cargo build --locked --release
@@ -70,6 +79,12 @@ packaging-check:
 	test -f profiles/cpu-partitioning-powersave/cpu-partitioning-powersave-variables.conf
 	grep -q 'realtime-variables.conf' tuned-rs.spec
 	grep -q 'cpu-partitioning-variables.conf' tuned-rs.spec
+	test -f debian/control
+	test -f debian/changelog
+	test -x debian/rules
+	test -x scripts/build-deb-source.sh
+	grep -q '^Conflicts:.*tuned' debian/control
+	grep -q '^Conflicts:.*power-profiles-daemon' debian/control
 
 test:
 	cargo test --locked --all-targets

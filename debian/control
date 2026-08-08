@@ -1,0 +1,38 @@
+Source: tuned-rs
+Section: admin
+Priority: optional
+Maintainer: Kenny Glowner <SisyphusAeolides@pm.me>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo (>= 1.75),
+ rustc (>= 1.75),
+ pkg-config,
+ libudev-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/SisyphusAeolides/tuned-rs
+Vcs-Git: https://github.com/SisyphusAeolides/tuned-rs.git
+Vcs-Browser: https://github.com/SisyphusAeolides/tuned-rs
+
+Package: tuned-rs
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+ dbus,
+ polkitd,
+ systemd,
+ xdg-utils
+Provides:
+ tuned (= ${binary:Version}),
+ tuned-ppd (= ${binary:Version}),
+ power-profiles-daemon (= ${binary:Version})
+Conflicts: tuned, tuned-ppd, power-profiles-daemon
+Replaces: tuned, tuned-ppd, power-profiles-daemon
+Description: Rust implementation of the TuneD system tuning daemon
+ tuned-rs is a native Rust implementation of TuneD. It provides the standard
+ tuned, tuned-adm, and tuned-ppd command and service identities, implements
+ TuneD's system D-Bus API, and consumes existing TuneD profiles.
+ .
+ It also provides the power-profiles-daemon D-Bus interfaces used by desktop
+ environments and includes a local web control center.
