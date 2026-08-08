@@ -22,12 +22,26 @@ pub fn write_raw(option: &str, value: &str) -> Result<()> {
         return write_transparent_hugepages(value);
     }
     let path = vm_path(option)?;
+    if read_trimmed(&path).is_ok_and(|current| current == value.trim()) {
+        info!("Keeping vm '{option}' at '{}'", value.trim());
+        return Ok(());
+    }
     info!("Writing '{value}' to {}", path.display());
     fs::write(&path, value).with_context(|| format!("Failed to write to {}", path.display()))?;
     Ok(())
 }
 
 pub fn apply_options(rollback: &Rollback, options: &[(String, String)]) -> Result<()> {
+    for (first, second) in [
+        ("dirty_bytes", "dirty_ratio"),
+        ("dirty_background_bytes", "dirty_background_ratio"),
+    ] {
+        if options.iter().any(|(option, _)| option == first)
+            && options.iter().any(|(option, _)| option == second)
+        {
+            warn!("Conflicting vm options '{first}' and '{second}' may cause undefined behavior");
+        }
+    }
     for (option, value) in options {
         apply_option(rollback, option, value)?;
     }
@@ -40,10 +54,10 @@ pub fn apply_option(rollback: &Rollback, option: &str, raw_value: &str) -> Resul
             apply_transparent_hugepages(rollback, raw_value)
         }
         "transparent_hugepage.defrag" => apply_transparent_hugepage_defrag(rollback, raw_value),
-        "dirty_bytes" | "dirty_background_bytes" if raw_value.trim().ends_with('%') => {
-            apply_percent_option(rollback, option, raw_value)
+        other if VM_OPTIONS.contains(&other) => {
+            let (effective_option, effective_value) = effective_option_value(other, raw_value);
+            apply_vm_sysctl(rollback, effective_option, &effective_value)
         }
-        other if VM_OPTIONS.contains(&other) => apply_vm_sysctl(rollback, other, raw_value),
         other => {
             warn!("Unsupported vm option '{other}'");
             Ok(())
@@ -67,19 +81,74 @@ fn apply_vm_sysctl(rollback: &Rollback, option: &str, raw_value: &str) -> Result
         return Ok(());
     };
 
-    rollback.record_original(&rollback_key("vm", option), &current)?;
+    if current == resolved {
+        info!("Keeping vm '{option}' at '{current}'");
+        return Ok(());
+    }
+
+    if let Err(error) = validate_dirty_value(option, &resolved) {
+        warn!("Skipping vm option '{option}': {error}");
+        return Ok(());
+    }
+
+    if current == "0" {
+        let counterpart = dirty_counterpart(option).expect("all vm options have counterparts");
+        let counterpart_value = read_trimmed(&vm_path(counterpart)?)?;
+        rollback.record_original(&rollback_key("vm", counterpart), &counterpart_value)?;
+    } else {
+        rollback.record_original(&rollback_key("vm", option), &current)?;
+    }
     write_raw(option, &resolved)
 }
 
-fn apply_percent_option(rollback: &Rollback, option: &str, raw_value: &str) -> Result<()> {
-    let percent = raw_value
-        .trim()
-        .trim_end_matches('%')
-        .parse::<u64>()
-        .with_context(|| format!("Invalid vm percentage value '{raw_value}'"))?;
-    let total = total_memory_bytes()?;
-    let bytes = total.saturating_mul(percent) / 100;
-    apply_vm_sysctl(rollback, option, &bytes.to_string())
+pub(crate) fn effective_option_value<'a>(option: &'a str, raw_value: &str) -> (&'a str, String) {
+    let value = raw_value.trim();
+    match option {
+        "dirty_bytes" if value.ends_with('%') => {
+            ("dirty_ratio", value.trim_end_matches('%').to_string())
+        }
+        "dirty_background_bytes" if value.ends_with('%') => (
+            "dirty_background_ratio",
+            value.trim_end_matches('%').to_string(),
+        ),
+        _ => (option, value.to_string()),
+    }
+}
+
+fn dirty_counterpart(option: &str) -> Option<&'static str> {
+    match option {
+        "dirty_bytes" => Some("dirty_ratio"),
+        "dirty_ratio" => Some("dirty_bytes"),
+        "dirty_background_bytes" => Some("dirty_background_ratio"),
+        "dirty_background_ratio" => Some("dirty_background_bytes"),
+        _ => None,
+    }
+}
+
+fn validate_dirty_value(option: &str, raw_value: &str) -> Result<()> {
+    let value = raw_value
+        .parse::<i64>()
+        .with_context(|| format!("Value '{raw_value}' must be an integer"))?;
+    match option {
+        "dirty_ratio" | "dirty_background_ratio" if !(0..=100).contains(&value) => {
+            bail!("Value must be between 0 and 100")
+        }
+        "dirty_bytes" if value < twice_page_size() => {
+            bail!("Value must be at least twice the page size")
+        }
+        "dirty_background_bytes" if value <= 0 => bail!("Value must be positive"),
+        _ => Ok(()),
+    }
+}
+
+fn twice_page_size() -> i64 {
+    // SAFETY: sysconf only reads the process's page-size configuration.
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page_size > 0 {
+        page_size.saturating_mul(2)
+    } else {
+        8192
+    }
 }
 
 fn apply_transparent_hugepages(rollback: &Rollback, raw_value: &str) -> Result<()> {
@@ -147,23 +216,6 @@ fn thp_path() -> Result<PathBuf> {
     bail!("Transparent hugepage interface not found")
 }
 
-fn total_memory_bytes() -> Result<u64> {
-    let path = crate::config::resolve_path("/proc/meminfo");
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("Failed to read {}", path.display()))?;
-    for line in content.lines() {
-        if let Some(kb) = line.strip_prefix("MemTotal:") {
-            let kb = kb
-                .trim()
-                .trim_end_matches(" kB")
-                .parse::<u64>()
-                .context("Failed to parse MemTotal")?;
-            return Ok(kb * 1024);
-        }
-    }
-    bail!("MemTotal not found in /proc/meminfo")
-}
-
 fn active_choice(raw: &str) -> &str {
     let Some(start) = raw.find('[') else {
         return raw.trim();
@@ -177,7 +229,60 @@ fn active_choice(raw: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
+
+    fn create_vm_pair(root: &TempDir, option: &str, value: &str, counterpart: &str, other: &str) {
+        let vm = root.path().join("proc/sys/vm");
+        fs::create_dir_all(&vm).unwrap();
+        fs::write(vm.join(option), value).unwrap();
+        fs::write(vm.join(counterpart), other).unwrap();
+    }
+
+    #[test]
+    fn percentage_bytes_use_the_ratio_interface() {
+        assert_eq!(
+            effective_option_value("dirty_bytes", "40%"),
+            ("dirty_ratio", "40".to_string())
+        );
+        assert_eq!(
+            effective_option_value("dirty_background_bytes", "10%"),
+            ("dirty_background_ratio", "10".to_string())
+        );
+    }
+
+    #[test]
+    fn rollback_preserves_the_active_counterpart() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        create_vm_pair(&root, "dirty_bytes", "0", "dirty_ratio", "20");
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+
+        let rollback = Rollback::load().unwrap();
+        apply_option(&rollback, "dirty_bytes", "8192").unwrap();
+        fs::write(root.path().join("proc/sys/vm/dirty_ratio"), "0").unwrap();
+        rollback.restore_all().unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.path().join("proc/sys/vm/dirty_ratio")).unwrap(),
+            "20"
+        );
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+
+    #[test]
+    fn stale_zero_rollback_is_an_idempotent_success() {
+        let _env_guard = crate::config::test_env_lock();
+        let root = TempDir::new().unwrap();
+        create_vm_pair(&root, "dirty_bytes", "0", "dirty_ratio", "20");
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        let path = root.path().join("proc/sys/vm/dirty_bytes");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+
+        write_raw("dirty_bytes", "0").unwrap();
+
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
 
     #[test]
     fn transparent_hugepage_apply_and_rollback_use_the_active_choice() {

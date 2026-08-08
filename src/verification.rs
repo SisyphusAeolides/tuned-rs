@@ -185,28 +185,13 @@ impl Verifier {
             let Some(expected) = expected else {
                 continue;
             };
-            let expected = if expected.trim().ends_with('%') {
-                match self.percent_of_memory(expected) {
-                    Ok(value) => value,
-                    Err(detail) => {
-                        report.read_error(
-                            "vm",
-                            option,
-                            self.path("/proc/meminfo"),
-                            expected,
-                            detail,
-                        );
-                        continue;
-                    }
-                }
-            } else {
-                expected.to_string()
-            };
+            let (effective_option, expected) =
+                crate::tuning::vm::effective_option_value(option, expected);
             self.check_path(
                 report,
                 "vm",
                 option,
-                self.path(&format!("/proc/sys/vm/{option}")),
+                self.path(&format!("/proc/sys/vm/{effective_option}")),
                 &expected,
             );
         }
@@ -825,29 +810,6 @@ impl Verifier {
                 detail: error.to_string(),
             }),
         }
-    }
-
-    fn percent_of_memory(&self, raw: &str) -> Result<String, String> {
-        let percent = raw
-            .trim()
-            .trim_end_matches('%')
-            .parse::<u64>()
-            .map_err(|error| format!("invalid percentage: {error}"))?;
-        let meminfo = fs::read_to_string(self.path("/proc/meminfo"))
-            .map_err(|error| format!("cannot read MemTotal: {error}"))?;
-        let kilobytes = meminfo
-            .lines()
-            .find_map(|line| {
-                line.strip_prefix("MemTotal:")
-                    .and_then(|value| value.trim().trim_end_matches(" kB").parse::<u64>().ok())
-            })
-            .ok_or_else(|| "MemTotal not found".to_string())?;
-        Ok(kilobytes
-            .saturating_mul(1024)
-            .saturating_mul(percent)
-            .checked_div(100)
-            .unwrap_or(0)
-            .to_string())
     }
 
     fn thp_directory(&self) -> Option<PathBuf> {

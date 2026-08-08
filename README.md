@@ -46,7 +46,7 @@ sudo apt install build-essential cargo rustc debhelper pkg-config libudev-dev
 make check
 make test
 make deb
-sudo apt install ../tuned-rs_0.2.7-1~ppa1~ubuntu26.04.1_$(dpkg --print-architecture).deb
+sudo apt install ../tuned-rs_0.2.8-1~ppa1~ubuntu26.04.1_$(dpkg --print-architecture).deb
 sudo systemctl enable --now tuned.service tuned-ppd.service
 ```
 
@@ -68,7 +68,7 @@ To create a signed, offline-buildable source upload for Launchpad:
 make ppa-source
 sudo apt install dput
 dput ppa:sisyphusaeolides/corinth \
-  ../tuned-rs_0.2.7-1~ppa1~ubuntu26.04.1_source.changes
+  ../tuned-rs_0.2.8-1~ppa1~ubuntu26.04.1_source.changes
 ```
 
 The source target vendors the locked Cargo dependency set into the original

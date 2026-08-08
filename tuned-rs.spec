@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.7
+Version:        0.2.8
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -132,6 +132,10 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Sat Aug 08 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.8-1
+- Preserve active VM dirty-threshold counterparts during rollback
+- Treat percentage dirty-byte settings as ratios for TuneD compatibility
+
 * Wed Aug 05 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.7-1
 - Preserve the active storage scheduler for rollback
 - Reject invalid CPU thermal limits before writing sysfs

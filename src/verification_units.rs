@@ -579,31 +579,13 @@ fn verify_vm(unit: &ProfileUnit, report: &mut VerificationReport) {
                 ValueMode::Choice,
             ),
             "dirty_ratio" | "dirty_background_ratio" | "dirty_bytes" | "dirty_background_bytes" => {
-                let expected = if expected.trim().ends_with('%') {
-                    match percentage_memory(expected) {
-                        Some(value) => value,
-                        None => {
-                            issue(
-                                report,
-                                VerificationIssueKind::ReadError,
-                                "vm",
-                                option,
-                                "/proc/meminfo",
-                                expected,
-                                None,
-                                "cannot resolve percentage against MemTotal",
-                            );
-                            continue;
-                        }
-                    }
-                } else {
-                    expected.clone()
-                };
+                let (effective_option, expected) =
+                    crate::tuning::vm::effective_option_value(option, expected);
                 check_file(
                     report,
                     "vm",
                     option,
-                    rooted(&format!("/proc/sys/vm/{option}")),
+                    rooted(&format!("/proc/sys/vm/{effective_option}")),
                     &expected,
                     ValueMode::Assignment,
                 );
@@ -1141,23 +1123,6 @@ fn normalize_readahead(raw: &str) -> String {
         number
     };
     format!("{prefix}{number}")
-}
-
-fn percentage_memory(raw: &str) -> Option<String> {
-    let percent = raw.trim().trim_end_matches('%').parse::<u64>().ok()?;
-    let meminfo = fs::read_to_string(rooted("/proc/meminfo")).ok()?;
-    let kilobytes = meminfo.lines().find_map(|line| {
-        line.strip_prefix("MemTotal:")
-            .and_then(|value| value.trim().trim_end_matches(" kB").parse::<u64>().ok())
-    })?;
-    Some(
-        kilobytes
-            .saturating_mul(1024)
-            .saturating_mul(percent)
-            .checked_div(100)
-            .unwrap_or(0)
-            .to_string(),
-    )
 }
 
 fn thp_path(leaf: &str) -> PathBuf {
