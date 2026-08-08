@@ -1,6 +1,6 @@
 Name:           tuned-rs
 Epoch:          1
-Version:        0.2.8
+Version:        0.2.9
 Release:        1%{?dist}
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
@@ -132,6 +132,9 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
+* Sat Aug 08 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.9-1
+- Export power profile hold dictionaries with standard D-Bus variant values
+
 * Sat Aug 08 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.8-1
 - Preserve active VM dirty-threshold counterparts during rollback
 - Treat percentage dirty-byte settings as ratios for TuneD compatibility

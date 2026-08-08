@@ -13,6 +13,21 @@ use crate::ppd::config::{self, API_VERSION};
 use crate::ppd::controller::PpdCore;
 use crate::ppd::polkit::{self, Polkit};
 
+type DbusDictionary = HashMap<String, Value<'static>>;
+type DbusDictionaryList = Vec<DbusDictionary>;
+
+fn string_dictionaries_to_dbus(dictionaries: Vec<HashMap<String, String>>) -> DbusDictionaryList {
+    dictionaries
+        .into_iter()
+        .map(|dictionary| {
+            dictionary
+                .into_iter()
+                .map(|(key, value)| (key, Value::from(value)))
+                .collect()
+        })
+        .collect()
+}
+
 pub struct UPowerProfiles {
     core: Arc<PpdCore>,
     polkit: Polkit,
@@ -80,14 +95,7 @@ impl PropertyEmitter {
         &self,
         holds: &[HashMap<String, String>],
     ) -> zbus::Result<()> {
-        let dbus_holds: Vec<HashMap<String, Value<'_>>> = holds
-            .iter()
-            .map(|hold| {
-                hold.iter()
-                    .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
-                    .collect()
-            })
-            .collect();
+        let dbus_holds = string_dictionaries_to_dbus(holds.to_vec());
         let value = Value::from(dbus_holds);
         self.properties_changed(
             config::UPOWER_BUS,
@@ -135,18 +143,8 @@ macro_rules! ppd_interface {
             }
 
             #[zbus(property)]
-            async fn profiles(&self) -> Vec<HashMap<String, Value<'_>>> {
-                self.core
-                    .profiles()
-                    .await
-                    .into_iter()
-                    .map(|profile| {
-                        profile
-                            .into_iter()
-                            .map(|(key, value)| (key, Value::from(value)))
-                            .collect()
-                    })
-                    .collect()
+            async fn profiles(&self) -> DbusDictionaryList {
+                string_dictionaries_to_dbus(self.core.profiles().await)
             }
 
             #[zbus(property)]
@@ -160,8 +158,8 @@ macro_rules! ppd_interface {
             }
 
             #[zbus(property)]
-            async fn active_profile_holds(&self) -> Vec<HashMap<String, String>> {
-                self.core.active_profile_holds().await
+            async fn active_profile_holds(&self) -> DbusDictionaryList {
+                string_dictionaries_to_dbus(self.core.active_profile_holds().await)
             }
 
             #[zbus(property)]
@@ -312,5 +310,25 @@ async fn spawn_property_sync(core: Arc<PpdCore>, emitter: Arc<PropertyEmitter>) 
             }
             last_holds = holds;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zbus::zvariant::Type;
+
+    #[test]
+    fn ppd_dictionary_lists_use_variant_values() {
+        assert_eq!(DbusDictionaryList::signature().as_str(), "aa{sv}");
+
+        let dictionaries = string_dictionaries_to_dbus(vec![HashMap::from([(
+            "Profile".to_string(),
+            "performance".to_string(),
+        )])]);
+        assert_eq!(
+            String::try_from(&dictionaries[0]["Profile"]).unwrap(),
+            "performance"
+        );
     }
 }

@@ -1,3 +1,10 @@
+tuned-rs (1:0.2.9-1~ppa1~ubuntu26.04.1) resolute; urgency=medium
+
+  * Export ActiveProfileHolds with the standard aa{sv} D-Bus signature.
+  * Restore GNOME Shell power-profile integration.
+
+ -- Kenny Glowner <SisyphusAeolides@pm.me>  Sat, 08 Aug 2026 00:00:00 -0500
+
 tuned-rs (1:0.2.8-1~ppa1~ubuntu26.04.1) resolute; urgency=medium
 
   * Preserve active VM dirty-threshold counterparts during rollback.
