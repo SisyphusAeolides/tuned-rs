@@ -277,7 +277,7 @@ mod tests {
         create_vm_pair(&root, "dirty_bytes", "0", "dirty_ratio", "20");
         std::env::set_var("TUNED_RS_ROOT", root.path());
         let path = root.path().join("proc/sys/vm/dirty_bytes");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o444)).unwrap();
 
         write_raw("dirty_bytes", "0").unwrap();
 
