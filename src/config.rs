@@ -1,0 +1,272 @@
+use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+pub const NAMESPACE: &str = "com.redhat.tuned";
+pub const DBUS_INTERFACE: &str = "com.redhat.tuned.control";
+pub const DBUS_OBJECT: &str = "/Tuned";
+
+pub const GLOBAL_CONFIG_FILE: &str = "/etc/tuned/tuned-main.conf";
+pub const ACTIVE_PROFILE_FILE: &str = "/etc/tuned/active_profile";
+pub const PROFILE_MODE_FILE: &str = "/etc/tuned/profile_mode";
+pub const PROFILE_FILE: &str = "tuned.conf";
+pub const DEFAULT_PROFILE: &str = "balanced";
+pub const ROLLBACK_FILE: &str = "/var/lib/tuned-rs/rollback.json";
+
+pub const SYSTEM_PROFILES_DIR: &str = "/usr/lib/tuned/profiles";
+pub const USER_PROFILES_DIR: &str = "/etc/tuned/profiles";
+
+pub const ROLLBACK_AUTO: &str = "auto";
+pub const ROLLBACK_NOT_ON_EXIT: &str = "not_on_exit";
+
+#[cfg(test)]
+pub fn test_env_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub fn default_profile_dirs() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from(SYSTEM_PROFILES_DIR),
+        PathBuf::from(USER_PROFILES_DIR),
+    ]
+}
+
+pub fn profile_dirs_from_env() -> Vec<PathBuf> {
+    std::env::var("TUNED_RS_PROFILE_DIRS")
+        .ok()
+        .or_else(|| global_config_value("profile_dirs"))
+        .map(|value| split_path_list(&value))
+        .filter(|dirs: &Vec<PathBuf>| !dirs.is_empty())
+        .unwrap_or_else(default_profile_dirs)
+}
+
+fn split_path_list(value: &str) -> Vec<PathBuf> {
+    value
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+pub fn resolve_path(base: &str) -> PathBuf {
+    if let Ok(root) = std::env::var("TUNED_RS_ROOT") {
+        PathBuf::from(root).join(base.trim_start_matches('/'))
+    } else {
+        PathBuf::from(base)
+    }
+}
+
+pub fn resolve_path_buf(path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+    if let Ok(root) = std::env::var("TUNED_RS_ROOT") {
+        if path.is_absolute() {
+            PathBuf::from(root).join(path.strip_prefix("/").unwrap_or(path))
+        } else {
+            PathBuf::from(root).join(path)
+        }
+    } else {
+        path.to_path_buf()
+    }
+}
+
+pub fn rollback_on_exit() -> bool {
+    let path = resolve_path(GLOBAL_CONFIG_FILE);
+    if !path.is_file() {
+        return true;
+    }
+
+    let mut ini = configparser::ini::Ini::new();
+    if ini.load(path.to_str().unwrap_or_default()).is_err() {
+        return true;
+    }
+
+    !matches!(
+        ini.get("main", "rollback").as_deref(),
+        Some(ROLLBACK_NOT_ON_EXIT)
+    )
+}
+
+pub fn dynamic_tuning() -> bool {
+    global_config_value("dynamic_tuning").is_some_and(|value| tuned_bool(&value))
+}
+
+pub fn reapply_sysctl() -> bool {
+    global_config_value("reapply_sysctl")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
+pub fn reapply_sysctl_exclusions() -> Vec<String> {
+    global_config_value("reapply_sysctl_exclude")
+        .map(|value| {
+            value
+                .split([',', ';'])
+                .map(str::trim)
+                .filter(|pattern| !pattern.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn startup_udev_settle_wait() -> u64 {
+    global_config_value("startup_udev_settle_wait")
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+pub fn update_interval() -> std::time::Duration {
+    let sleep = sleep_interval().as_secs();
+    let seconds = global_config_value("update_interval")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(10)
+        .max(sleep);
+    std::time::Duration::from_secs(seconds)
+}
+
+pub fn sleep_interval() -> std::time::Duration {
+    let seconds = global_config_value("sleep_interval")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(1);
+    std::time::Duration::from_secs(seconds)
+}
+
+pub fn unix_socket_enabled() -> bool {
+    global_config_value("enable_unix_socket").is_some_and(|value| tuned_bool(&value))
+}
+
+pub fn unix_socket_path() -> PathBuf {
+    resolve_path_buf(
+        global_config_value("unix_socket_path")
+            .as_deref()
+            .unwrap_or("/run/tuned/tuned.sock"),
+    )
+}
+
+pub fn unix_socket_permissions() -> u32 {
+    global_config_value("unix_socket_permissions")
+        .and_then(|value| {
+            let value = value.trim().trim_start_matches("0o");
+            u32::from_str_radix(value, 8).ok()
+        })
+        .filter(|mode| *mode <= 0o777)
+        .unwrap_or(0o600)
+}
+
+pub fn unix_socket_backlog() -> u32 {
+    global_config_value("connections_backlog")
+        .and_then(|value| value.trim().parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1024)
+}
+
+pub fn unix_socket_ownership() -> (Option<u32>, Option<u32>) {
+    let value = global_config_value("unix_socket_ownership").unwrap_or_else(|| "-1 -1".to_string());
+    let mut fields = value.split_whitespace();
+    (
+        fields.next().and_then(|value| resolve_account(value, true)),
+        fields
+            .next()
+            .and_then(|value| resolve_account(value, false)),
+    )
+}
+
+fn resolve_account(value: &str, user: bool) -> Option<u32> {
+    if value == "-1" {
+        return None;
+    }
+    if let Ok(id) = value.parse::<u32>() {
+        return Some(id);
+    }
+    let database = if user { "passwd" } else { "group" };
+    let output = std::process::Command::new("getent")
+        .args([database, value])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()?
+        .split(':')
+        .nth(2)?
+        .parse()
+        .ok()
+}
+
+pub fn unix_socket_signal_paths() -> Vec<PathBuf> {
+    global_config_value("unix_socket_signal_paths")
+        .map(|value| split_path_list(&value))
+        .unwrap_or_default()
+        .into_iter()
+        .map(resolve_path_buf)
+        .collect()
+}
+
+pub fn default_instance_priority() -> i32 {
+    global_config_value("default_instance_priority")
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+pub fn daemon_enabled() -> bool {
+    global_config_value("daemon")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
+pub fn dbus_enabled() -> bool {
+    global_config_value("enable_dbus")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
+fn global_config_value(key: &str) -> Option<String> {
+    let path = resolve_path(GLOBAL_CONFIG_FILE);
+    let mut ini = configparser::ini::Ini::new();
+    ini.load(path.to_str()?).ok()?;
+    ini.get("main", key).or_else(|| ini.get("default", key))
+}
+
+fn tuned_bool(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "y" | "yes" | "true" | "on"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn global_profile_directories_are_honored_without_environment_override() {
+        let _guard = test_env_lock();
+        let root = TempDir::new().unwrap();
+        let config = root.path().join("etc/tuned");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(
+            config.join("tuned-main.conf"),
+            "[main]\nprofile_dirs = /opt/tuned, /etc/custom-tuned\n",
+        )
+        .unwrap();
+        std::env::set_var("TUNED_RS_ROOT", root.path());
+        std::env::remove_var("TUNED_RS_PROFILE_DIRS");
+        assert_eq!(
+            profile_dirs_from_env(),
+            [
+                PathBuf::from("/opt/tuned"),
+                PathBuf::from("/etc/custom-tuned")
+            ]
+        );
+        std::env::remove_var("TUNED_RS_ROOT");
+    }
+}

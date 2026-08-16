@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TuneD Control Center
+Comment=Interactively tune system power, CPU, and networking
+Exec=tuned-rs-gui
+Icon=tuned-rs
+Terminal=false
+Categories=Settings;
+Keywords=performance;power;cpu;network;tuning;

@@ -1,0 +1,44 @@
+.TH TUNED-RS 8 "July 2026" "tuned-rs 0.2.3" "System Administration"
+.SH NAME
+tuned-rs \- dynamic system tuning daemon
+.SH SYNOPSIS
+.B tuned-rs
+.SH DESCRIPTION
+.B tuned-rs
+is a Rust implementation of the TuneD daemon. It loads TuneD-compatible
+profiles, applies system tuning settings, exposes the TuneD D-Bus interfaces,
+and restores recorded settings when configured to roll back.
+.PP
+The daemon is normally managed through
+.BR systemctl (1)
+using the
+.B tuned-rs.service
+unit.
+.SH FILES
+.TP
+.I /etc/tuned/tuned-main.conf
+Main daemon configuration.
+.TP
+.I /etc/tuned/profiles
+Locally administered TuneD profiles.
+.TP
+.I /usr/lib/tuned/profiles
+Package-provided TuneD profiles.
+.TP
+.I /var/lib/tuned-rs/rollback.json
+Persisted rollback state.
+.SH ENVIRONMENT
+.TP
+.B TUNED_RS_PROFILE_DIRS
+Comma-separated profile search path.
+.TP
+.B TUNED_RS_ROOT
+Prefix applied to configuration and state paths for testing.
+.TP
+.B RUST_LOG
+Logging filter, such as
+.BR tuned_rs=debug .
+.SH SEE ALSO
+.BR tuned-rs-ppd (8),
+.BR tuned-adm (8),
+.BR systemctl (1)

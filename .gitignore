@@ -1,0 +1,23 @@
+/target/
+/vendor/
+/.cargo/
+/debian/.debhelper/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.debhelper*
+/debian/*.substvars
+/debian/tuned-rs/
+/*.rpm
+/*.src.rpm
+/*.tar.gz
+/*.tar.xz
+/*.deb
+/*.ddeb
+/*.buildinfo
+/*.changes
+/*.dsc
+
+# Formal compiler output
+/*.mod
+/formal/agda/*.agdai
+/formal/idris2/build/

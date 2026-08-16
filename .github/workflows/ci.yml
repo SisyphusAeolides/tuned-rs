@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev pkg-config
+
+      - name: Install Rust 1.75
+        run: rustup toolchain install 1.75.0 --profile minimal --component clippy,rustfmt
+
+      - name: Check TuneD replacement packaging
+        run: make packaging-check
+
+      - name: Check formatting
+        run: cargo +1.75.0 fmt --all --check
+
+      - name: Check workspace
+        run: cargo +1.75.0 check --locked --all-targets
+
+      - name: Lint workspace
+        run: cargo +1.75.0 clippy --locked --all-targets -- -D warnings
+
+      - name: Test workspace
+        run: cargo +1.75.0 test --locked --all-targets
+
+  formal:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install formal toolchains
+        run: dnf -y -q install Agda idris2 gcc-gfortran make
+
+      - name: Check Fortran, Idris, and Agda models
+        run: sh scripts/check-formal.sh --strict

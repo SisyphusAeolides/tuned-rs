@@ -1,0 +1,26 @@
+.TH TUNED-RS-PPD 8 "July 2026" "tuned-rs 0.2.3" "System Administration"
+.SH NAME
+tuned-rs-ppd \- translate power-profiles-daemon requests to TuneD profiles
+.SH SYNOPSIS
+.B tuned-rs-ppd
+.SH DESCRIPTION
+.B tuned-rs-ppd
+provides the power-profiles-daemon D-Bus interfaces and maps desktop power
+profiles to profiles managed by
+.BR tuned-rs (8).
+.PP
+The daemon is normally managed through
+.BR systemctl (1)
+using the
+.B tuned-rs-ppd.service
+unit.
+.SH FILES
+.TP
+.I /etc/tuned/ppd.conf
+Power profile mappings and battery-detection settings.
+.TP
+.I /etc/tuned/ppd_base_profile
+Persisted desktop power profile.
+.SH SEE ALSO
+.BR tuned-rs (8),
+.BR systemctl (1)
