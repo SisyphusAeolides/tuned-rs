@@ -18,12 +18,15 @@ Source1:        vendor.tar.xz
 
 %if 0%{?fedora}
 BuildRequires:  cargo-rpm-macros >= 24
+%endif
+%if 0%{?rhel} >= 9
+BuildRequires:  rust-toolset >= 1.75
 %else
 BuildRequires:  cargo >= 1.75
+BuildRequires:  rust >= 1.75
 %endif
 BuildRequires:  gcc
 BuildRequires:  make
-BuildRequires:  rust >= 1.75
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  systemd-devel
 Requires:       dbus
