@@ -28,6 +28,7 @@ Arch Linux and Fedora are the supported release and maintenance targets.
 
 ## Control Center
 
+![TuneD Control Center](TuneD-rs-gui.png)
 Launch the interactive processor, network, power-profile, and telemetry UI
 from the desktop application menu or a terminal:
 
