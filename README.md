@@ -24,8 +24,7 @@ The Arch package provides and replaces both `tuned` and
 `power-profiles-daemon`, so it can replace the Python packages without changing
 callers or service names.
 
-Arch Linux and compatible Arch-based distributions are the only supported
-release and maintenance targets.
+Arch Linux and Fedora are the supported release and maintenance targets.
 
 ## Control Center
 
@@ -39,6 +38,16 @@ tuned-rs-gui
 The launcher creates a random loopback-only HTTP endpoint protected by a
 192-bit per-session token, opens the default browser, and exits after the tab
 has closed. Changes are applied through TuneD's transactional instance API.
+
+## Install on Fedora
+
+Enable the Copr repository and install:
+
+```bash
+sudo dnf copr enable sisyphuscode/tuned-rs
+sudo dnf install tuned-rs
+sudo systemctl enable --now tuned.service
+```
 
 ## Install on Arch-based systems
 
