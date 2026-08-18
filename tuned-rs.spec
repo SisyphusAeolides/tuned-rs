@@ -1,30 +1,43 @@
 Name:           tuned-rs
-Epoch:          1
-Version:        0.2.9
-Release:        1%{?dist}
+Version:        0.2.10
+Release:        %autorelease
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
-Provides:       tuned = %{epoch}:%{version}-%{release}
-Provides:       tuned%{?_isa} = %{epoch}:%{version}-%{release}
-Obsoletes:      tuned < %{epoch}:%{version}-%{release}
-Provides:       tuned-ppd = %{epoch}:%{version}-%{release}
-Provides:       tuned-ppd%{?_isa} = %{epoch}:%{version}-%{release}
-Obsoletes:      tuned-ppd < %{epoch}:%{version}-%{release}
+Provides:       tuned = %{version}-%{release}
+Provides:       tuned%{?_isa} = %{version}-%{release}
+Obsoletes:      tuned < %{version}-%{release}
+Provides:       tuned-ppd = %{version}-%{release}
+Provides:       tuned-ppd%{?_isa} = %{version}-%{release}
+Obsoletes:      tuned-ppd < %{version}-%{release}
 
-License:        GPL-2.0-or-later AND MIT AND Apache-2.0
+# Main package license: GPL-2.0-or-later AND MIT AND Apache-2.0
+# Vendor dependency licenses:
+# Apache-2.0 OR MIT
+# Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+# BSD-2-Clause OR Apache-2.0 OR MIT
+# GPL-2.0-or-later
+# MIT
+# MIT OR Apache-2.0
+# MIT OR Apache-2.0 OR LGPL-2.1-or-later
+# MIT OR LGPL-3.0-or-later
+# Unlicense OR MIT
+License:        %{shrink:
+                GPL-2.0-or-later AND MIT AND Apache-2.0 AND
+                (Apache-2.0 OR MIT) AND
+                (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT) AND
+                (BSD-2-Clause OR Apache-2.0 OR MIT) AND
+                (MIT OR Apache-2.0 OR LGPL-2.1-or-later) AND
+                (MIT OR LGPL-3.0-or-later) AND
+                (Unlicense OR MIT)
+                }
 URL:            https://github.com/SisyphusAeolides/tuned-rs
 Source0:        %{name}-%{version}.tar.gz
+# Vendored dependencies are used because packaging all dependencies would require an unreasonable amount of work.
 Source1:        vendor.tar.xz
 
-%if 0%{?fedora}
 BuildRequires:  cargo-rpm-macros >= 24
-%endif
-%if 0%{?rhel} >= 9
-BuildRequires:  rust-toolset >= 1.75
-%else
 BuildRequires:  cargo >= 1.75
 BuildRequires:  rust >= 1.75
-%endif
 BuildRequires:  gcc
 BuildRequires:  make
 BuildRequires:  systemd-rpm-macros
@@ -43,23 +56,14 @@ power-profiles-daemon compatibility services.
 
 %prep
 %autosetup -p1 -a 1
-%if 0%{?fedora}
 # Tells Fedora's build system to use your existing vendor.tar.xz directory
 %cargo_prep -v vendor
-%else
-mkdir -p .cargo
-mv cargo-config.toml .cargo/config.toml
-%endif
 
 %build
-%if 0%{?fedora}
 # Replaces manual cargo commands and injects Fedora's hardening flags (PIE, RELRO)
 %cargo_build
 # Prints the required multi-license string to the build log
 %{cargo_license_summary}
-%else
-CARGO_NET_OFFLINE=true CARGO_PROFILE_RELEASE_DEBUG=2 cargo build --frozen --release
-%endif
 
 %install
 make install-bin DESTDIR=%{buildroot} BINDIR=%{_bindir} SBINDIR=%{_sbindir}
@@ -84,12 +88,8 @@ if [ -d %{_sysconfdir}/grub.d ]; then
 fi
 
 %check
-%if 0%{?fedora}
 # Replaces manual cargo commands with the offline-compatible macro
 %cargo_test
-%else
-CARGO_NET_OFFLINE=true cargo test --frozen --all-targets
-%endif
 make packaging-check
 
 %files
@@ -135,58 +135,4 @@ make packaging-check
 %{_datadir}/metainfo/io.github.SisyphusAeolides.tuned-rs.metainfo.xml
 
 %changelog
-* Sat Aug 08 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.9-1
-- Export power profile hold dictionaries with standard D-Bus variant values
-
-* Sat Aug 08 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.8-1
-- Preserve active VM dirty-threshold counterparts during rollback
-- Treat percentage dirty-byte settings as ratios for TuneD compatibility
-
-* Wed Aug 05 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.7-1
-- Preserve the active storage scheduler for rollback
-- Reject invalid CPU thermal limits before writing sysfs
-
-* Tue Aug 04 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-4
-- Declare the native linker build dependency
-
-* Mon Aug 03 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-3
-- Retain Enterprise Linux compatibility alongside Fedora cargo macros
-
-* Mon Aug 03 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-2
-- Adopt Fedora cargo RPM macros for compliance
-
-* Wed Jul 29 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.6-1
-- Reconcile firmware platform-profile drift with the selected TuneD profile
-- Treat unavailable vendor-specific video controls as not applicable
-
-* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.5-1
-- Honor verify --ignore-missing for vendor-specific video controls
-
-* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.4-1
-- Tolerate rollback of devices removed since the profile was applied
-- Avoid duplicate systemd alias restart jobs during package upgrades
-
-* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.3-1
-- Honor merged-usr binary directories on Fedora
-
-* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.2-1
-- Complete Rust 1.75 lint compatibility for the control center
-
-* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.1-1
-- Preserve compatibility with the Rust 1.75 minimum toolchain
-
-* Tue Jul 28 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.2.0-1
-- Complete TuneD profile, plugin, control API, and configuration compatibility
-- Add dynamic device tuning and the TuneD Control Center
-- Add formal verification artifacts and expanded integration coverage
-
-* Mon Jul 27 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 1:0.1.0-3
-- Add the TuneD-compatible tuned-adm administration client
-- Install classic tuned, tuned-ppd, service, and D-Bus activation identities
-- Replace tuned and tuned-ppd through versioned RPM capabilities
-
-* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 0.1.0-2
-- Preserve debug information across Fedora and Enterprise Linux build roots
-
-* Sun Jul 26 2026 Kenny Glowner <SisyphusAeolides@pm.me> - 0.1.0-1
-- Initial package
+%autochangelog
