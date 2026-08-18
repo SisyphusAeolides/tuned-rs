@@ -35,9 +35,15 @@ Source0:        %{name}-%{version}.tar.gz
 # Vendored dependencies are used because packaging all dependencies would require an unreasonable amount of work.
 Source1:        vendor.tar.xz
 
+%if 0%{?fedora}
 BuildRequires:  cargo-rpm-macros >= 24
+%endif
+%if 0%{?rhel} >= 9
+BuildRequires:  rust-toolset >= 1.75
+%else
 BuildRequires:  cargo >= 1.75
 BuildRequires:  rust >= 1.75
+%endif
 BuildRequires:  gcc
 BuildRequires:  make
 BuildRequires:  systemd-rpm-macros
@@ -56,14 +62,23 @@ power-profiles-daemon compatibility services.
 
 %prep
 %autosetup -p1 -a 1
+%if 0%{?fedora}
 # Tells Fedora's build system to use your existing vendor.tar.xz directory
 %cargo_prep -v vendor
+%else
+mkdir -p .cargo
+mv cargo-config.toml .cargo/config.toml
+%endif
 
 %build
+%if 0%{?fedora}
 # Replaces manual cargo commands and injects Fedora's hardening flags (PIE, RELRO)
 %cargo_build
 # Prints the required multi-license string to the build log
 %{cargo_license_summary}
+%else
+CARGO_NET_OFFLINE=true CARGO_PROFILE_RELEASE_DEBUG=2 cargo build --frozen --release
+%endif
 
 %install
 make install-bin DESTDIR=%{buildroot} BINDIR=%{_bindir} SBINDIR=%{_sbindir}
@@ -88,8 +103,12 @@ if [ -d %{_sysconfdir}/grub.d ]; then
 fi
 
 %check
+%if 0%{?fedora}
 # Replaces manual cargo commands with the offline-compatible macro
 %cargo_test
+%else
+CARGO_NET_OFFLINE=true cargo test --frozen --all-targets
+%endif
 make packaging-check
 
 %files
