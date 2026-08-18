@@ -46,7 +46,8 @@ Enable the Copr repository and install:
 ```bash
 sudo dnf copr enable sisyphuscode/tuned-rs
 sudo dnf install tuned-rs
-sudo systemctl enable --now tuned.service
+sudo systemctl enable --now tuned-rs
+sudo systemctl enable --now tuned-rs-ppd
 ```
 
 ## Install on Arch-based systems
