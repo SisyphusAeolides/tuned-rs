@@ -708,6 +708,14 @@ pub fn save_profile_mode(manual: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn read_profile_mode() -> bool {
+    let path = config::resolve_path(config::PROFILE_MODE_FILE);
+    match fs::read_to_string(path) {
+        Ok(mode) => !mode.trim().eq_ignore_ascii_case("auto"),
+        Err(_) => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -95,6 +95,50 @@ pub fn dynamic_tuning() -> bool {
     global_config_value("dynamic_tuning").is_some_and(|value| tuned_bool(&value))
 }
 
+pub fn chaos_config() -> crate::chaos::ChaosConfig {
+    let defaults = crate::chaos::ChaosConfig::default();
+    crate::chaos::ChaosConfig {
+        enabled: global_config_value("chaos_enabled")
+            .map(|value| tuned_bool(&value))
+            .unwrap_or(defaults.enabled),
+        window: global_config_value("chaos_window")
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(defaults.window),
+        dt: global_config_value("chaos_dt")
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(defaults.dt),
+        mandelbrot_iterations: global_config_value("chaos_mandelbrot_iterations")
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(defaults.mandelbrot_iterations),
+    }
+    .sanitized()
+}
+
+pub fn chaos_auto_profile() -> bool {
+    global_config_value("chaos_auto_profile")
+        .map(|value| tuned_bool(&value))
+        .unwrap_or(true)
+}
+
+pub fn chaos_control_interval() -> std::time::Duration {
+    update_interval().max(std::time::Duration::from_secs(5))
+}
+
+pub fn chaos_min_dwell() -> std::time::Duration {
+    global_config_value("chaos_min_dwell")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or_else(|| std::time::Duration::from_secs(60))
+}
+
+pub fn chaos_confirmations() -> u32 {
+    global_config_value("chaos_confirmations")
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|confirmations| *confirmations > 0)
+        .unwrap_or(3)
+}
+
 pub fn reapply_sysctl() -> bool {
     global_config_value("reapply_sysctl")
         .map(|value| tuned_bool(&value))

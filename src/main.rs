@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, watch};
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::EnvFilter;
@@ -51,6 +52,16 @@ async fn main() -> Result<()> {
 
     info!("All modules online. Entering main event loop...");
 
+    let (adaptive_stop_tx, adaptive_stop_rx) = watch::channel(false);
+    let adaptive_task = if config::chaos_auto_profile() {
+        Some(tokio::spawn(run_adaptive_monitor(
+            Arc::clone(&daemon),
+            adaptive_stop_rx,
+        )))
+    } else {
+        None
+    };
+
     loop {
         tokio::select! {
             event = rx.recv() => {
@@ -74,9 +85,32 @@ async fn main() -> Result<()> {
         }
     }
 
+    let _ = adaptive_stop_tx.send(true);
+    if let Some(task) = adaptive_task {
+        let _ = task.await;
+    }
+
     daemon.stop(config::rollback_on_exit()).await;
     info!("Shutting down tuned-rs...");
     Ok(())
+}
+
+async fn run_adaptive_monitor(daemon: Arc<daemon::Daemon>, mut stop: watch::Receiver<bool>) {
+    let mut interval = tokio::time::interval(config::chaos_control_interval());
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                if let Err(error) = daemon.adaptive_profile_step().await {
+                    warn!("Chaos-assisted adaptive tuning step failed: {error}");
+                }
+            }
+            changed = stop.changed() => {
+                if changed.is_err() || *stop.borrow() {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 async fn settle_udev() {

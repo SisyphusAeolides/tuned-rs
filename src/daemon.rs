@@ -1,11 +1,13 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::config;
+use crate::dynamic::{AdaptiveState, WorkloadDetector};
 use crate::instances::InstanceRegistry;
 use crate::profile::{self, Profile, ProfileCatalog};
 use crate::rollback::Rollback;
@@ -25,6 +27,8 @@ pub struct Daemon {
     instance_rollbacks: Mutex<HashMap<String, Arc<Rollback>>>,
     instance_order: Mutex<Vec<String>>,
     signal_paths: Mutex<SignalRegistry>,
+    workload: Mutex<WorkloadDetector>,
+    adaptive: Mutex<AdaptiveState>,
 }
 
 impl Daemon {
@@ -41,6 +45,8 @@ impl Daemon {
             signal_paths: Mutex::new(SignalRegistry::from_paths(
                 config::unix_socket_signal_paths(),
             )),
+            workload: Mutex::new(WorkloadDetector::new()),
+            adaptive: Mutex::new(AdaptiveState::default()),
         })
     }
 
@@ -79,7 +85,8 @@ impl Daemon {
             }
         };
 
-        match self.apply_profile(&profile_name, true).await {
+        let manual = profile::read_profile_mode();
+        match self.apply_profile(&profile_name, manual).await {
             Ok(()) => {
                 *self.running.lock().await = true;
                 Ok(true)
@@ -139,7 +146,68 @@ impl Daemon {
     }
 
     pub async fn recommend_profile(&self) -> String {
-        self.catalog.lock().await.recommend()
+        let fallback = self.catalog.lock().await.recommend();
+        if !config::chaos_config().enabled {
+            return fallback;
+        }
+
+        let mut workload = self.workload.lock().await;
+        if workload.detect_workload().is_ok() {
+            workload.recommend_profile_with_chaos().to_string()
+        } else {
+            fallback
+        }
+    }
+
+    pub async fn adaptive_profile_step(&self) -> Result<Option<String>> {
+        if !config::chaos_auto_profile() || !config::chaos_config().enabled {
+            return Ok(None);
+        }
+        if *self.manual.lock().await {
+            return Ok(None);
+        }
+
+        let mut workload = self.workload.lock().await;
+        if workload.detect_workload().is_err() {
+            return Ok(None);
+        }
+        let chaos = workload.chaos_metrics();
+        if !chaos.enabled || chaos.samples < 32 {
+            return Ok(None);
+        }
+        let target = workload.recommend_profile_with_chaos().to_string();
+        drop(workload);
+
+        let active = self.active_profile().await;
+        if active.split_whitespace().count() != 1 {
+            return Ok(None);
+        }
+        if !self.catalog.lock().await.names().contains(&target) {
+            return Ok(None);
+        }
+
+        let now = Instant::now();
+        let ready = self.adaptive.lock().await.should_switch(
+            &active,
+            &target,
+            now,
+            config::chaos_min_dwell(),
+            config::chaos_confirmations(),
+        );
+        if !ready {
+            return Ok(None);
+        }
+
+        let (success, message) = self.switch_profile(&target, false).await;
+        if success {
+            self.adaptive.lock().await.record_switch(now);
+            info!("Chaos-assisted adaptive profile switched '{active}' -> '{target}'");
+            Ok(Some(target))
+        } else {
+            self.adaptive.lock().await.record_failure();
+            warn!("Chaos-assisted adaptive profile switch failed: {message}");
+            Ok(None)
+        }
     }
 
     pub async fn verify_active_profile(&self, ignore_missing: bool) -> bool {

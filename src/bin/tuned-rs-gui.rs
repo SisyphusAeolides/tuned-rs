@@ -16,6 +16,7 @@ use zbus::proxy;
 const MAX_REQUEST: usize = 64 * 1024;
 const IDLE_TIMEOUT_SECONDS: u64 = 20;
 const HTML: &str = include_str!("../../assets/gui/index.html");
+const CHAOS_UI: &str = include_str!("../../assets/gui/chaos.js");
 const ICON: &str = include_str!("../../assets/icons/tuned-circle-gauge.svg");
 static TELEMETRY: OnceLock<Mutex<tuned_rs::telemetry::TelemetryCollector>> = OnceLock::new();
 
@@ -159,7 +160,10 @@ async fn serve(mut stream: TcpStream, token: &str, last_activity: &AtomicU64) ->
 
 async fn route(request: HttpRequest, token: &str) -> Result<(&'static str, Vec<u8>)> {
     match (request.method.as_str(), request.path.as_str()) {
-        ("GET", "/") => Ok(("text/html; charset=utf-8", HTML.as_bytes().to_vec())),
+        ("GET", "/") => Ok((
+            "text/html; charset=utf-8",
+            format!("{HTML}<script>{CHAOS_UI}</script>").into_bytes(),
+        )),
         ("GET", "/icon.svg") => Ok(("image/svg+xml", ICON.as_bytes().to_vec())),
         _ if request.token.as_deref() != Some(token) => bail!("Invalid GUI session token"),
         ("GET", "/api/state") => {

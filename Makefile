@@ -14,13 +14,14 @@ KERNELINSTALLDIR ?= /usr/lib/kernel/install.d
 APPLICATIONDIR ?= /usr/share/applications
 ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 METAINFO_DIR ?= /usr/share/metainfo
+VERSION ?= 0.3.0
 
 .PHONY: all build test check packaging-check proofs proofs-strict install install-bin install-data install-config install-profiles tarball vendor srpm deb ppa-source ppa-source-unsigned
 
 all: build
 
 tarball:
-	git archive --format=tar.gz --prefix=tuned-rs-0.2.10/ --output=tuned-rs-0.2.10.tar.gz HEAD
+	git archive --format=tar.gz --prefix=tuned-rs-$(VERSION)/ --output=tuned-rs-$(VERSION).tar.gz HEAD
 
 vendor:
 	builddir="$$(mktemp -d)"; \

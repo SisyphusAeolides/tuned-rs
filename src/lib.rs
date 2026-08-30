@@ -1,3 +1,4 @@
+pub mod chaos;
 pub mod config;
 pub mod daemon;
 pub mod device_matcher;

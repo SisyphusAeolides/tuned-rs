@@ -102,6 +102,18 @@ dynamic tuning, timing, rollback, profile directories, D-Bus, Unix socket,
 instance priority, sysctl reapplication, and startup udev-settle controls.
 Power-profile mappings are read from `/etc/tuned/ppd.conf`.
 
+Bounded chaos analysis is enabled by default with `chaos_enabled = 1`. The
+telemetry collector then reports Lorenz, Rössler, logistic-map, Mandelbrot,
+Lyapunov, and Duffing features. These are finite, rate-limited advisory
+signals; they do not write governors, sysfs values, or profiles. The profile
+recommendation API may use the advisory signal after its history has warmed up.
+When `chaos_auto_profile = 1`, the daemon can use that recommendation only in
+auto mode, after three matching observations and a 60-second minimum dwell
+period. Manual profiles are not changed. Set `chaos_enabled = 0` to disable
+the analysis. The available limits are `chaos_window`, `chaos_dt`, and
+`chaos_mandelbrot_iterations`, plus `chaos_confirmations` and
+`chaos_min_dwell` for the guarded adaptive path.
+
 The package installs administrator-editable realtime and CPU-partitioning
 variable templates in `/etc/tuned`. Package upgrades preserve local edits.
 
