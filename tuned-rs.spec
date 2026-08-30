@@ -1,5 +1,5 @@
 Name:           tuned-rs
-Version:        0.2.10
+Version:        0.3.0
 Release:        %autorelease
 Summary:        Rust drop-in replacement for the TuneD system tuning daemon
 
