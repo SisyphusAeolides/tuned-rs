@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+"http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>tuned-rs</vendor>
+  <vendor_url>https://github.com/tuned-rs/tuned-rs</vendor_url>
+
+  <action id="org.freedesktop.UPower.PowerProfiles.switch-profile">
+    <description>Switch power profile</description>
+    <message>Authentication is required to switch power profiles.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.freedesktop.UPower.PowerProfiles.hold-profile">
+    <description>Hold power profile</description>
+    <message>Authentication is required to hold power profiles.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.freedesktop.UPower.PowerProfiles.release-profile">
+    <description>Release power profile</description>
+    <message>Authentication is required to release power profiles.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+</policyconfig>

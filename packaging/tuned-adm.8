@@ -1,0 +1,89 @@
+.TH TUNED-ADM 8 "July 2026" "tuned-rs 0.2.3" "System Administration"
+.SH NAME
+tuned-adm \- manage the TuneD-compatible system tuning daemon
+.SH SYNOPSIS
+.B tuned-adm
+.RI [ options ]
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B tuned-adm
+controls the service that owns
+.B com.redhat.tuned
+on the system D-Bus.  Its command names, output conventions, and exit status
+follow the TuneD administration client.
+.SH COMMANDS
+.TP
+.B list [profiles|plugins] [--verbose]
+List available profiles or runtime plugins.  Profile listing also prints the
+active profile.
+.TP
+.B active
+Print the current active profile.
+.TP
+.B off
+Disable active tuning and restore recorded values.
+.TP
+.B profile [profile ...]
+Apply one profile or a stack of profiles in the specified order.  Without a
+profile, list available profiles.
+.TP
+.B profile_info [profile]
+Print the selected profile's name, summary, and description.  The active
+profile is used when no name is given.
+.TP
+.B recommend
+Print the recommended profile.
+.TP
+.B verify [--ignore-missing]
+Verify the current system state against the active profile.
+.TP
+.B auto_profile
+Enable automatic selection and apply the recommended profile.
+.TP
+.B profile_mode
+Print whether profile selection is manual or automatic.
+.TP
+.B instance_acquire_devices devices instance
+Move matching devices to a dynamic plugin instance.
+.TP
+.B get_instances [plugin]
+List active dynamic instances, optionally restricted by plugin.
+.TP
+.B instance_get_devices instance
+List devices assigned to an instance.
+.SH OPTIONS
+.TP
+.BR -h , " --help"
+Print command usage.
+.TP
+.BR -v , " --version"
+Print the client version when used before the command.
+.TP
+.BR -d , " --debug"
+Accept the TuneD debug option.
+.TP
+.BR -a , " --async"
+Accept the TuneD asynchronous-operation option.
+.TP
+.BR -t , " --timeout " seconds
+Validate and accept a positive operation timeout.
+.TP
+.BR -l , " --loglevel " level
+Accept the TuneD log-capture level option.
+.SH EXIT STATUS
+Zero indicates success, one indicates that the requested operation failed or
+its arguments were invalid, and three indicates a D-Bus or internal failure.
+.SH FILES
+.TP
+.I /etc/tuned/active_profile
+Persisted profile selection.
+.TP
+.I /etc/tuned/profile_mode
+Manual or automatic selection mode.
+.TP
+.I /var/log/tuned/tuned.log
+Conventional TuneD log location reported by verification output.
+.SH SEE ALSO
+.BR tuned (8),
+.BR systemctl (1)
