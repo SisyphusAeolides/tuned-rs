@@ -931,7 +931,7 @@ fn snapshot_process(pid: libc::pid_t, identity: String) -> Result<ProcessSnapsho
     if policy < 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    let mut parameter = libc::sched_param { sched_priority: 0 };
+    let mut parameter = sched_param_with_priority(0);
     let result = unsafe { libc::sched_getparam(pid, &mut parameter) };
     if result != 0 {
         return Err(std::io::Error::last_os_error().into());
@@ -946,15 +946,21 @@ fn snapshot_process(pid: libc::pid_t, identity: String) -> Result<ProcessSnapsho
 }
 
 fn set_scheduler(pid: libc::pid_t, policy: i32, priority: i32) -> Result<()> {
-    let parameter = libc::sched_param {
-        sched_priority: priority,
-    };
+    let parameter = sched_param_with_priority(priority);
     let result = unsafe { libc::sched_setscheduler(pid, policy, &parameter) };
     if result == 0 {
         Ok(())
     } else {
         Err(std::io::Error::last_os_error().into())
     }
+}
+
+fn sched_param_with_priority(priority: i32) -> libc::sched_param {
+    // `sched_param` has platform-specific fields on musl. Zero-initialize the
+    // complete ABI struct, then set the POSIX priority field we use.
+    let mut parameter = unsafe { std::mem::zeroed::<libc::sched_param>() };
+    parameter.sched_priority = priority;
+    parameter
 }
 
 fn get_affinity(pid: libc::pid_t) -> Result<Vec<u8>> {

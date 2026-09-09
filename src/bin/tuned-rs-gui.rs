@@ -160,10 +160,7 @@ async fn serve(mut stream: TcpStream, token: &str, last_activity: &AtomicU64) ->
 
 async fn route(request: HttpRequest, token: &str) -> Result<(&'static str, Vec<u8>)> {
     match (request.method.as_str(), request.path.as_str()) {
-        ("GET", "/") => Ok((
-            "text/html; charset=utf-8",
-            format!("{HTML}<script>{CHAOS_UI}</script>").into_bytes(),
-        )),
+        ("GET", "/") => Ok(("text/html; charset=utf-8", gui_html().into_bytes())),
         ("GET", "/icon.svg") => Ok(("image/svg+xml", ICON.as_bytes().to_vec())),
         _ if request.token.as_deref() != Some(token) => bail!("Invalid GUI session token"),
         ("GET", "/api/state") => {
@@ -263,6 +260,15 @@ async fn route(request: HttpRequest, token: &str) -> Result<(&'static str, Vec<u
             )
         }
         _ => bail!("Unknown GUI endpoint"),
+    }
+}
+
+fn gui_html() -> String {
+    let chaos_script = format!("<script>{CHAOS_UI}</script>");
+    if let Some((document, closing_body)) = HTML.split_once("</body>") {
+        format!("{document}{chaos_script}</body>{closing_body}")
+    } else {
+        format!("{HTML}{chaos_script}")
     }
 }
 
@@ -390,6 +396,13 @@ async fn read_request(stream: &mut TcpStream) -> Result<HttpRequest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gui_registers_chaos_analysis_inside_document() {
+        let page = gui_html();
+        assert!(page.contains("Chaos analysis"));
+        assert!(page.find("Chaos analysis").unwrap() < page.find("</body>").unwrap());
+    }
 
     #[test]
     fn gui_inputs_are_strictly_allowlisted() {

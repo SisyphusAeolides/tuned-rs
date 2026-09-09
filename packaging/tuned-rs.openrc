@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+
+supervisor=supervise-daemon
+name="tuned-rs"
+description="Dynamic system tuning daemon"
+command=/usr/bin/tuned-rs
+command_args=""
+respawn_delay=2
+respawn_max=5
+respawn_period=1800
+
+depend() {
+	need dbus
+	after bootmisc modules
+	provide tuned
+}

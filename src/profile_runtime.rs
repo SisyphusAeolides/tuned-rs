@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use tracing::debug;
@@ -272,28 +271,9 @@ fn regex_search(pattern: &str, text: &str) -> Result<bool> {
     if pattern.len() > 4096 || pattern.contains('\0') {
         bail!("Invalid profile condition regular expression");
     }
-    let mut child = Command::new("grep")
-        .args(["-P", "-q", "-e", pattern])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("Failed to execute grep for profile condition matching")?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("grep stdin was unavailable"))?
-        .write_all(text.as_bytes())?;
-    let output = child.wait_with_output()?;
-    match output.status.code() {
-        Some(0) => Ok(true),
-        Some(1) => Ok(false),
-        _ => bail!(
-            "Invalid profile condition regex '{}': {}",
-            pattern,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-    }
+    let regex = regex::Regex::new(pattern)
+        .map_err(|error| anyhow::anyhow!("Invalid profile condition regex '{pattern}': {error}"))?;
+    Ok(regex.is_match(text))
 }
 
 #[cfg(test)]
