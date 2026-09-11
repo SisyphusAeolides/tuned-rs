@@ -46,7 +46,7 @@ has closed. Changes are applied through TuneD's transactional instance API.
 Install from the published ArachOS repository:
 
 ```bash
-sudo dnf -S tuned-rs
+sudo dnf install tuned-rs
 sudo rustctl enable --now tuned-rs.service tuned-rs-ppd.service
 ```
 
@@ -67,15 +67,15 @@ Server = https://sisyphusaeolides.github.io/Sisyphus-Repo/$arch
 Then install and start TuneD:
 
 ```bash
-sudo dnf -Syy
-sudo dnf -S tuned-rs
+sudo dnf makecache
+sudo dnf install tuned-rs
 sudo systemctl enable --now tuned.service
 ```
 
 To build from source:
 
 ```bash
-sudo dnf -S --needed base-devel rust cargo systemd
+sudo dnf install @development-tools rust cargo systemd-devel
 make check
 make test
 sudo make install
