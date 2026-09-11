@@ -52,9 +52,9 @@ sudo rustctl enable --now tuned-rs.service tuned-rs-ppd.service
 The repository URL is configured by the Fedora release package. Local builds
 are published through the `arachos` repository created during the Fedora build.
 
-## Install on Fedora-based systems
+## Install on DNF/RPM based systems
 
-The package is available in the Sisyphus Copr repository for Fedora-based systems.
+The package is available in the Sisyphus Copr repository for DNF/RPM based systems.
 Enable the repository and install the package:
 
 ```console
