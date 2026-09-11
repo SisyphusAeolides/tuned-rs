@@ -60,8 +60,10 @@ Enable the repository and install the package:
 
 ```console
 sudo dnf copr enable sisyphuscode/tuned-rs
+sudo dnf remove tuned
 sudo dnf install tuned-rs
-sudo systemctl enable --now tuned.service
+sudo systemctl enable --now tuned-rs
+sudo systemctl enable --now tuned-rs-ppd
 ```
 
 To build from source:
