@@ -40,18 +40,6 @@ The launcher creates a random loopback-only HTTP endpoint protected by a
 192-bit per-session token, opens the default browser, and exits after the tab
 has closed. Changes are applied through TuneD's transactional instance API.
 
-## Install on Fedora
-
-Install from the published Fedora repository:
-
-```bash
-sudo dnf install tuned-rs
-sudo rustctl enable --now tuned-rs.service tuned-rs-ppd.service
-```
-
-The repository URL is configured by the Fedora release package. Local builds
-are published through the `arachos` repository created during the Fedora build.
-
 ## Install on DNF/RPM based systems
 
 The package is available in the Sisyphus Copr repository for DNF/RPM based systems.
