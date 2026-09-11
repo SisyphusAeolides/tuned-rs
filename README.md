@@ -55,19 +55,11 @@ are published through the `arachos` repository created during the ArachOS build.
 
 ## Install on Fedora-based systems
 
-Add the Sisyphus repository to
-`/etc/dnf.conf`:
+The package is available in the Sisyphus Copr repository for Fedora-based systems.
+Enable the repository and install the package:
 
-```ini
-[sisyphus]
-SigLevel = Required DatabaseRequired
-Server = https://sisyphusaeolides.github.io/Sisyphus-Repo/$arch
-```
-
-Then install and start TuneD:
-
-```bash
-sudo dnf makecache
+```console
+sudo dnf copr enable sisyphuscode/tuned-rs
 sudo dnf install tuned-rs
 sudo systemctl enable --now tuned.service
 ```
