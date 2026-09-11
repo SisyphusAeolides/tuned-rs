@@ -20,12 +20,11 @@ owns TuneD's system D-Bus API, and consumes existing TuneD profiles.
   service, IRQ, USB, video, audio, ACPI, uncore, mount, and realtime controls
 - dynamic disk, network, CPU, scheduler, and device-instance tuning
 
-The ArachOS dnf package provides and replaces both `tuned` and
+The dnf package provides and replaces both `tuned` and
 `power-profiles-daemon`, so it can replace the Python packages without changing
-callers or service names. RustD owns the native service units on ArachOS.
+callers or service names.
 
-ArachOS is the primary integration and release target. Fedora-based systems use
-the same dnf package through the Sisyphus repository.
+Fedora is the primary integration and release target. Install the package through the Sisyphus Copr repository.
 
 ## Control Center
 
@@ -41,17 +40,17 @@ The launcher creates a random loopback-only HTTP endpoint protected by a
 192-bit per-session token, opens the default browser, and exits after the tab
 has closed. Changes are applied through TuneD's transactional instance API.
 
-## Install on ArachOS
+## Install on Fedora
 
-Install from the published ArachOS repository:
+Install from the published Fedora repository:
 
 ```bash
 sudo dnf install tuned-rs
 sudo rustctl enable --now tuned-rs.service tuned-rs-ppd.service
 ```
 
-The repository URL is configured by the ArachOS release package. Local builds
-are published through the `arachos` repository created during the ArachOS build.
+The repository URL is configured by the Fedora release package. Local builds
+are published through the `arachos` repository created during the Fedora build.
 
 ## Install on Fedora-based systems
 
