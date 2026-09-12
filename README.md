@@ -20,11 +20,12 @@ owns TuneD's system D-Bus API, and consumes existing TuneD profiles.
   service, IRQ, USB, video, audio, ACPI, uncore, mount, and realtime controls
 - dynamic disk, network, CPU, scheduler, and device-instance tuning
 
-The dnf package provides and replaces both `tuned` and
+The Arch package provides and replaces both `tuned` and
 `power-profiles-daemon`, so it can replace the Python packages without changing
 callers or service names.
 
-Fedora is the primary integration and release target. Install the package through the Sisyphus Copr repository.
+Arch Linux and CachyOS are the primary integration and release targets. Install
+the package from the Sisyphus Arch repository.
 
 ## Control Center
 
@@ -40,15 +41,16 @@ The launcher creates a random loopback-only HTTP endpoint protected by a
 192-bit per-session token, opens the default browser, and exits after the tab
 has closed. Changes are applied through TuneD's transactional instance API.
 
-## Install on DNF/RPM based systems
+## Install on Arch-based systems
 
-The package is available in the Sisyphus Copr repository for DNF/RPM based systems.
-Enable the repository and install the package:
+The package is available in the Sisyphus Arch repository. Configure that
+repository as described in [Sisyphus-Repo](https://github.com/SisyphusAeolides/Sisyphus-Repo),
+then install it with pacman:
 
 ```console
-sudo dnf copr enable sisyphuscode/tuned-rs
-sudo dnf remove tuned
-sudo dnf install tuned-rs
+sudo pacman -Syu
+sudo pacman -Rns tuned
+sudo pacman -S tuned-rs
 sudo systemctl enable --now tuned-rs
 sudo systemctl enable --now tuned-rs-ppd
 ```
@@ -56,7 +58,7 @@ sudo systemctl enable --now tuned-rs-ppd
 To build from source:
 
 ```bash
-sudo dnf install @development-tools rust cargo systemd-devel
+sudo pacman -S --needed base-devel rust systemd
 make check
 make test
 sudo make install
